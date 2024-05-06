@@ -1,7 +1,7 @@
 const std = @import("std");
 const print = std.debug.print;
 
-pub const TokenType = enum {
+pub const TokenType = enum(u8) {
     EOF,
     ID,
     L_ASSIGN,
@@ -9,27 +9,31 @@ pub const TokenType = enum {
     NUM,
     PLUS,
     MULT,
+    DIV,
     LPAREN,
     RPAREN,
     SEMICOLON,
+    NOTOKEN,
 
     pub fn getRegex(self: TokenType) [:0]const u8 {
-        switch (self) {
-            TokenType.EOF => "",
-            TokenType.ID => "[a-zA-Z_][a-zA-Z_0-9]+",
-            TokenType.L_ASSIGN => "<-",
-            TokenType.R_ASSIGN => "->",
-            TokenType.NUM => "-?[0-9](.[0-9]*)?",
-            TokenType.PLUS => "+",
-            TokenType.MULT => "*",
-            TokenType.LPAREN => "(",
-            TokenType.RPAREN => ")",
-            TokenType.SEMICOLON => ";",
-        }
+        return switch (self) {
+            .EOF => "",
+            .ID => "[a-zA-Z_][a-zA-Z_0-9]*",
+            .L_ASSIGN => "<-",
+            .R_ASSIGN => "->",
+            .NUM => "-?[0-9]+(.[0-9]*)?",
+            .PLUS => "\\+",
+            .MULT => "\\*",
+            .DIV => "/",
+            .LPAREN => "\\(",
+            .RPAREN => "\\)",
+            .SEMICOLON => ";",
+            .NOTOKEN => "",
+        };
     }
 };
 
-pub const Token = union(TokenType) { EOF: void, ID: [:0]const u8, L_ASSIGN: void, R_ASSIGN: void, NUM: f32, PLUS: void, MULT: void, LPAREN: void, RPAREN: void, SEMICOLON: void };
+pub const Token = union(TokenType) { EOF: void, ID: [:0]const u8, L_ASSIGN: void, R_ASSIGN: void, NUM: f32, PLUS: void, MULT: void, DIV: void, LPAREN: void, RPAREN: void, SEMICOLON: void, NOTOKEN: void };
 
 pub const SymbolClass = enum {
     Terminal,
@@ -100,6 +104,11 @@ pub const grammar = [_]Production{
     Production{ .LHS = .T, .RHS = &[_]Symbol{
         .{ .NonTerminal = .T },
         .{ .Terminal = .MULT },
+        .{ .NonTerminal = .F },
+    } },
+    Production{ .LHS = .T, .RHS = &[_]Symbol{
+        .{ .NonTerminal = .T },
+        .{ .Terminal = .DIV },
         .{ .NonTerminal = .F },
     } },
     Production{ .LHS = .T, .RHS = &[_]Symbol{
