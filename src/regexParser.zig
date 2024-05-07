@@ -107,6 +107,7 @@ pub const specNodalDFA: NodalDFA = nodalDFAGen: {
 
 // Generates and stores NONDETERMINISTIC FA for the spec
 pub const specNodalNFA: NodalNFA = nodalNFAGen: {
+    @setEvalBranchQuota(10000);
     const tokenTypes = std.meta.fields(TokenType);
     var tonkenNodalNFAs: [tokenTypes.len]NodalNFA = undefined;
 
@@ -389,7 +390,7 @@ fn NodalFA(comptime nodeT: type) type {
             }
         }
 
-        pub inline fn getRuntimeUsable(comptime self: *const @This()) @This() {
+        pub fn getRuntimeUsable(comptime self: *const @This()) @This() {
             const outNodes = getNodes: {
                 var tempNodes: [self.nodes.len]nodeT = undefined;
 
@@ -418,6 +419,34 @@ fn NodalFA(comptime nodeT: type) type {
                 .acceptingTokens = self.acceptingTokens,
             };
             return out;
+        }
+
+        pub fn nextState(self: *const @This(), currentState: usize, transition: u8) ?usize {
+            const node = self.nodes[currentState];
+            for (node.transitionKeys, node.transitionDests) |k, d| {
+                if (k == transition) {
+                    return d;
+                }
+            }
+            return null;
+        }
+
+        // Gets the highest priority accepting value for the given node id.
+        pub fn getAccepting(self: *const @This(), nodeId: usize) ?TokenType {
+            var maxPrioToken: ?TokenType = null;
+            if (self.acceptingNodes) |acceptingNodes| {
+                for (acceptingNodes, self.acceptingTokens orelse unreachable) |aNodeId, aT| {
+                    if (aNodeId != nodeId) continue;
+                    if (maxPrioToken) |maxT| {
+                        if (@intFromEnum(aT) < @intFromEnum(maxT)) {
+                            maxPrioToken = aT;
+                        }
+                    } else {
+                        maxPrioToken = aT;
+                    }
+                }
+            }
+            return maxPrioToken;
         }
     };
 }
@@ -514,4 +543,11 @@ test "Test Epsillon Closure" {
 
 test "Dfa" {
     specNodalDFA.printSelf();
+}
+
+test "Dfa Accepting Method" {
+    print("1: {any}\n", .{specNodalDFA.getAccepting(1)});
+    print("2: {any}\n", .{specNodalDFA.getAccepting(2)});
+    print("4: {any}\n", .{specNodalDFA.getAccepting(4)});
+    print("13: {any}\n", .{specNodalDFA.getAccepting(13)});
 }
