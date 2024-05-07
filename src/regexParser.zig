@@ -2,12 +2,35 @@ const spec = @import("specification.zig");
 const TokenType = spec.TokenType;
 const std = @import("std");
 const print = std.debug.print;
-const BoundedArr256 = std.BoundedArray(AutomataNode, 256);
+const BitSet = std.bit_set.StaticBitSet;
+const BoundedArr256 = std.BoundedArray(NfaNode, 256);
+
+// Set of indecies to nodes in specNodalNFA
+const DfaNodeSet = BitSet(specNodalNFA.nodes.len);
+// Generates and stores a DETERMINISTIC FA for the spec,
+//   based on specNodalNFA.
+//   Each node contains a set of nodes in specNodalNFA.
+pub const specNodalDFA: NodalDFA = nodalDFAGen: {
+    var outDfa: NodalDFA = undefined;
+    var dfaNodes: []const DfaNode = &.{};
+    const baseNode = DfaNode{
+        .id = 0,
+        .data = specNodalNFA.baseNode.epsillonClosure(specNodalNFA.nodes, null),
+    };
+    dfaNodes = dfaNodes ++ .{baseNode};
+
+    outDfa.nodes = dfaNodes;
+    outDfa.baseNode = &dfaNodes[0];
+
+    const realOut = outDfa.getRuntimeUsable();
+
+    break :nodalDFAGen realOut;
+};
 
 // Generates and stores NONDETERMINISTIC FA for the spec
-pub const specNodalNFA: NodalFA = nodalNFAGen: {
+pub const specNodalNFA: NodalNFA = nodalNFAGen: {
     const tokenTypes = std.meta.fields(TokenType);
-    var tonkenNodalNFAs: [tokenTypes.len]NodalFA = undefined;
+    var tonkenNodalNFAs: [tokenTypes.len]NodalNFA = undefined;
 
     for (tokenTypes, 0..) |e, i| {
         const tt: TokenType = @enumFromInt(e.value);
@@ -18,9 +41,9 @@ pub const specNodalNFA: NodalFA = nodalNFAGen: {
         };
     }
 
-    var mergedNFA: NodalFA = undefined;
-    var mergedNodes: []const AutomataNode = &[0]AutomataNode{};
-    var baseNode: AutomataNode = .{
+    var mergedNFA: NodalNFA = undefined;
+    var mergedNodes: []const NfaNode = &[0]NfaNode{};
+    var baseNode: NfaNode = .{
         .id = 0,
     };
 
@@ -31,7 +54,7 @@ pub const specNodalNFA: NodalFA = nodalNFAGen: {
         const zeroId = id;
         baseNode.addExit(0, zeroId);
         for (nfa.nodes) |node| {
-            var newNode: AutomataNode = .{
+            var newNode: NfaNode = .{
                 .id = node.id + zeroId,
                 .acceptsToken = node.acceptsToken,
             };
@@ -58,7 +81,7 @@ pub const specNodalNFA: NodalFA = nodalNFAGen: {
     break :nodalNFAGen out;
 };
 
-fn genNodalNFA(regex: []const u8, acceptingType: TokenType) InvalidRegexError!NodalFA {
+fn genNodalNFA(regex: []const u8, acceptingType: TokenType) InvalidRegexError!NodalNFA {
     var nodeList = BoundedArr256.init(0) catch unreachable;
     const NFA = try createForContext(regex, 0, 0, &nodeList);
     NFA.endNode.acceptsToken = acceptingType;
@@ -73,12 +96,12 @@ fn genNodalNFA(regex: []const u8, acceptingType: TokenType) InvalidRegexError!No
 
 fn createForContext(regex: []const u8, baseID: usize, parenLvl: u8, arr: *BoundedArr256) InvalidRegexError!StartAndEnd {
     var currentID = baseID;
-    const baseNode = try AutomataNode.addNewToArr(currentID, TokenType.NOTOKEN, arr);
+    const baseNode = try NfaNode.addNewToArr(currentID, TokenType.NOTOKEN, arr);
     currentID += 1;
-    var currentNode = try AutomataNode.addNewToArr(currentID, TokenType.NOTOKEN, arr);
+    var currentNode = try NfaNode.addNewToArr(currentID, TokenType.NOTOKEN, arr);
     currentID += 1;
     baseNode.addExit(0, currentNode.id);
-    var previousNode: *AutomataNode = baseNode;
+    var previousNode: *NfaNode = baseNode;
 
     var escaped: bool = false;
     var i: usize = 0;
@@ -107,14 +130,14 @@ fn createForContext(regex: []const u8, baseID: usize, parenLvl: u8, arr: *Bounde
                 baseNode.addExit(0, rhs.startNode.id);
                 currentID = rhs.endNode.id + 1;
                 i += rhs.charCount + 1;
-                const mergedEnd = try AutomataNode.addNewToArr(currentID, TokenType.NOTOKEN, arr);
+                const mergedEnd = try NfaNode.addNewToArr(currentID, TokenType.NOTOKEN, arr);
                 currentID += 1;
                 currentNode.addExit(0, mergedEnd.id);
                 rhs.endNode.addExit(0, mergedEnd.id);
                 currentNode = mergedEnd;
                 break;
             } else if (c == '*') {
-                const newBlank = try AutomataNode.addNewToArr(currentID, TokenType.NOTOKEN, arr);
+                const newBlank = try NfaNode.addNewToArr(currentID, TokenType.NOTOKEN, arr);
                 currentID += 1;
                 previousNode.addExit(0, currentNode.id);
                 currentNode.addExit(0, previousNode.id);
@@ -128,7 +151,7 @@ fn createForContext(regex: []const u8, baseID: usize, parenLvl: u8, arr: *Bounde
                 currentNode.addExit(0, previousNode.id);
                 continue;
             } else if (c == '[') {
-                const newNode = try AutomataNode.addNewToArr(currentID, TokenType.NOTOKEN, arr);
+                const newNode = try NfaNode.addNewToArr(currentID, TokenType.NOTOKEN, arr);
                 currentID += 1;
                 const charJump = try currentNode.addMacroExits(regex[i + 1 ..], newNode.id);
                 previousNode = currentNode;
@@ -137,7 +160,7 @@ fn createForContext(regex: []const u8, baseID: usize, parenLvl: u8, arr: *Bounde
                 continue;
             }
         }
-        const newNode = try AutomataNode.addNewToArr(currentID, TokenType.NOTOKEN, arr);
+        const newNode = try NfaNode.addNewToArr(currentID, TokenType.NOTOKEN, arr);
         currentID += 1;
         currentNode.addExit(c, newNode.id);
         previousNode = currentNode;
@@ -160,125 +183,132 @@ const InvalidRegexError = error{
 };
 
 const StartAndEnd = struct {
-    startNode: *AutomataNode,
-    endNode: *AutomataNode,
+    startNode: *NfaNode,
+    endNode: *NfaNode,
     charCount: usize, // Number of chars used. First char + this = null char or closing paren.
 };
 
-pub const AutomataNode = struct {
-    id: usize,
-    acceptsToken: TokenType = .NOTOKEN,
-    transitionKeys: []const u8 = &[0]u8{},
-    transitionDests: []const usize = &[0]usize{},
+const NfaNode = AutomataNode(void, {});
+const DfaNode = AutomataNode(DfaNodeSet, DfaNodeSet.initEmpty());
+pub fn AutomataNode(comptime dataType: type, comptime defaultData: dataType) type {
+    return struct {
+        id: usize,
+        data: dataType = defaultData,
+        acceptsToken: TokenType = .NOTOKEN,
+        transitionKeys: []const u8 = &[0]u8{},
+        transitionDests: []const usize = &[0]usize{},
 
-    pub fn addNewToArr(id: usize, acceptToken: TokenType, arr: *BoundedArr256) !*@This() {
-        arr.append(@This(){
-            .id = id,
-            .acceptsToken = acceptToken,
-        }) catch return InvalidRegexError.RegexTooComplex;
-        return &arr.slice()[arr.len - 1];
-    }
-
-    pub fn addExit(self: *@This(), key: u8, dest: usize) void {
-        self.transitionKeys = self.transitionKeys ++ .{key};
-        self.transitionDests = self.transitionDests ++ .{dest};
-    }
-
-    pub fn addMacroExits(self: *@This(), macroStart: []const u8, dest: usize) !usize {
-        var i: usize = 0;
-        while (macroStart[i] != ']') : (i += 3) {
-            if (macroStart[i + 1] != '-' or macroStart[i + 2] <= macroStart[i]) {
-                return InvalidRegexError.InvalidMacro;
-            }
-            for (macroStart[i]..macroStart[i + 2] + 1) |c| {
-                self.addExit(c, dest);
-            }
+        pub fn addNewToArr(id: usize, acceptToken: TokenType, arr: *BoundedArr256) !*@This() {
+            arr.append(@This(){
+                .id = id,
+                .acceptsToken = acceptToken,
+            }) catch return InvalidRegexError.RegexTooComplex;
+            return &arr.slice()[arr.len - 1];
         }
-        return i + 1;
 
-        // int i=0;
-        // int charCnt = 0;
-        // do{
-        //     if(macroStart[i+1]!='-' || macroStart[i+2]<=macroStart[i]){
-        //         printf("Invalid range macro.\n");
-        //         return -1;
-        //     }
-        //     charCnt += macroStart[i+2] - macroStart[i] + 1;
-        //     i+=3;
-        // } while(macroStart[i]!=']');
-        // int newExitCnt = startNode->exitCount+charCnt;
-        // startNode->exitChars = realloc(startNode->exitChars, newExitCnt*sizeof(char));
-        // startNode->exitNodes = realloc(startNode->exitNodes, newExitCnt*sizeof(Node*));
-        // int ptr = startNode->exitCount;
-        // startNode->exitCount=newExitCnt;
-        // i=0;
-        // do{
-        //     for(int j=macroStart[i]; j<=macroStart[i+2]; j++){
-        //         startNode->exitChars[ptr] = j;
-        //         startNode->exitNodes[ptr] = endNode;
-        //         ptr++;
-        //     }
-        //     i+=3;
-        // } while(macroStart[i]!=']');
-        // return i;
-        //
-    }
-};
+        pub fn addExit(self: *@This(), key: u8, dest: usize) void {
+            self.transitionKeys = self.transitionKeys ++ .{key};
+            self.transitionDests = self.transitionDests ++ .{dest};
+        }
 
-pub const NodalFA = struct {
-    nodes: []const AutomataNode,
-    baseNode: *const AutomataNode,
-    acceptingNodes: ?[]const usize = null,
-    acceptingTokens: ?[]const TokenType = null,
-
-    pub fn printSelf(self: @This()) void {
-        for (self.nodes) |node| {
-            print("{}", .{node.id});
-            if (node.acceptsToken != .NOTOKEN) {
-                print(" - ACCEPTS: {}\n", .{node.acceptsToken});
-            } else {
-                print("\n", .{});
+        pub fn addMacroExits(self: *@This(), macroStart: []const u8, dest: usize) !usize {
+            var i: usize = 0;
+            while (macroStart[i] != ']') : (i += 3) {
+                if (macroStart[i + 1] != '-' or macroStart[i + 2] <= macroStart[i]) {
+                    return InvalidRegexError.InvalidMacro;
+                }
+                for (macroStart[i]..macroStart[i + 2] + 1) |c| {
+                    self.addExit(c, dest);
+                }
             }
-            for (node.transitionKeys, node.transitionDests) |k, d| {
-                if (k != 0) {
-                    print("|-\"{c}\"->{d}\n", .{ k, d });
+            return i + 1;
+        }
+
+        pub fn epsillonClosure(self: *const @This(), availibleNodes: []const @This(), existingClosure: ?DfaNodeSet) DfaNodeSet {
+            var newClosure = existingClosure orelse DfaNodeSet.initEmpty();
+            // print("\n{} contains: {{", .{self.id});
+            // var iter = newClosure.iterator(.{});
+            // while (iter.next()) |i| {
+            //     print("{}, ", .{i});
+            // }
+            // print("}}\n", .{});
+            newClosure.set(self.id);
+            for (self.transitionKeys, self.transitionDests) |k, d| {
+                if (k == 0 and !newClosure.isSet(d)) {
+                    newClosure = availibleNodes[d].epsillonClosure(availibleNodes, newClosure);
+                }
+            }
+            return newClosure;
+        }
+    };
+}
+
+pub const NodalNFA = NodalFA(NfaNode);
+pub const NodalDFA = NodalFA(DfaNode);
+fn NodalFA(comptime nodeT: type) type {
+    return struct {
+        nodes: []const nodeT,
+        baseNode: *const nodeT,
+        acceptingNodes: ?[]const usize = null,
+        acceptingTokens: ?[]const TokenType = null,
+
+        pub fn printSelf(self: @This()) void {
+            print("\nNODES:\n", .{});
+            for (self.nodes) |node| {
+                print("  {}", .{node.id});
+                if (node.acceptsToken != .NOTOKEN) {
+                    print(" - ACCEPTS: {}\n", .{node.acceptsToken});
                 } else {
-                    print("|----->{d}\n", .{d});
+                    print("\n", .{});
+                }
+                for (node.transitionKeys, node.transitionDests) |k, d| {
+                    if (k != 0) {
+                        print("  |-\"{c}\"->{d}\n", .{ k, d });
+                    } else {
+                        print("  |----->{d}\n", .{d});
+                    }
+                }
+            }
+            if (self.acceptingNodes) |nds| {
+                print("ACCEPTING TABLE:\n", .{});
+                for (nds, self.acceptingTokens orelse unreachable) |n, t| {
+                    print("{d: >4} - accepts: {any}\n", .{ n, t });
                 }
             }
         }
-    }
 
-    pub inline fn getRuntimeUsable(comptime self: *const @This()) NodalFA {
-        const outNodes = getNodes: {
-            var tempNodes: [self.nodes.len]AutomataNode = undefined;
+        pub inline fn getRuntimeUsable(comptime self: *const @This()) @This() {
+            const outNodes = getNodes: {
+                var tempNodes: [self.nodes.len]nodeT = undefined;
 
-            for (self.nodes, 0..) |node, i| {
-                const keysConst: [node.transitionKeys.len]u8 = (node.transitionKeys[0..]).*;
-                const destsConst: [node.transitionDests.len]usize = (node.transitionDests[0..]).*;
-                // for (node.transitionDests, 0..) |dest, j| {
-                //     destsTemp[j] = &tempNodes[dest.id];
-                // }
-                // const destsConst = destsTemp;
-                tempNodes[i] = .{
-                    .id = node.id,
-                    .acceptsToken = node.acceptsToken,
-                    .transitionKeys = &keysConst,
-                    .transitionDests = &destsConst,
-                };
-            }
-            break :getNodes tempNodes;
-        };
+                for (self.nodes, 0..) |node, i| {
+                    const keysConst: [node.transitionKeys.len]u8 = (node.transitionKeys[0..]).*;
+                    const destsConst: [node.transitionDests.len]usize = (node.transitionDests[0..]).*;
+                    // for (node.transitionDests, 0..) |dest, j| {
+                    //     destsTemp[j] = &tempNodes[dest.id];
+                    // }
+                    // const destsConst = destsTemp;
+                    tempNodes[i] = .{
+                        .id = node.id,
+                        .acceptsToken = node.acceptsToken,
+                        .data = node.data,
+                        .transitionKeys = &keysConst,
+                        .transitionDests = &destsConst,
+                    };
+                }
+                break :getNodes tempNodes;
+            };
 
-        const out: NodalFA = .{
-            .nodes = &outNodes,
-            .baseNode = &outNodes[0],
-            .acceptingNodes = self.acceptingNodes,
-            .acceptingTokens = self.acceptingTokens,
-        };
-        return out;
-    }
-};
+            const out: @This() = .{
+                .nodes = &outNodes,
+                .baseNode = &outNodes[0],
+                .acceptingNodes = self.acceptingNodes,
+                .acceptingTokens = self.acceptingTokens,
+            };
+            return out;
+        }
+    };
+}
 
 test "NonExaustiveIter" {
     inline for (std.meta.fields(TokenType)) |tt| {
@@ -289,8 +319,8 @@ test "NonExaustiveIter" {
 
 test "Node Func Tests" {
     // comptime var testArr: BoundedArr256 = BoundedArr256.init(0) catch unreachable;
-    // comptime var testNode1 = try AutomataNode.addNewToArr(0, TokenType.NOTOKEN, &testArr);
-    // const testNode2 = try AutomataNode.addNewToArr(1, TokenType.NOTOKEN, &testArr);
+    // comptime var testNode1 = try NfaNode.addNewToArr(0, TokenType.NOTOKEN, &testArr);
+    // const testNode2 = try NfaNode.addNewToArr(1, TokenType.NOTOKEN, &testArr);
     //
     // testNode1.addExit('a', testNode2);
     //
@@ -300,7 +330,7 @@ test "Node Func Tests" {
 fn runTest(comptime regex: []const u8, comptime acceptType: ?TokenType) !void {
     print("Testing Regex: \"{s}\"! \n\n", .{regex});
     const possibleNFA = comptime genNodalNFA(regex, acceptType orelse TokenType.ID);
-    const testNFA: ?NodalFA = comptime if (possibleNFA) |fa| fa.getRuntimeUsable() else |_| null;
+    const testNFA: ?NodalNFA = comptime if (possibleNFA) |fa| fa.getRuntimeUsable() else |_| null;
     // comptime (try genNodalNFA(regex, acceptType orelse TokenType.ID)).getRuntimeUsable();
     if (testNFA) |nfa| {
         nfa.printSelf();
@@ -357,4 +387,15 @@ test "Lang Test Individual" {
 test "Spec Test NFA Combined" {
     print("\nTESTING SPEC COMBINED\n", .{});
     specNodalNFA.printSelf();
+}
+
+test "Test Epsillon Closure" {
+    // var zCl = specNodalNFA.nodes[0].epsillonClosure(specNodalNFA.nodes, DfaNodeSet.initEmpty());
+    var zCl = specNodalDFA.baseNode.data;
+    var iter = zCl.iterator(.{});
+    print("\n0 contains: {{", .{});
+    while (iter.next()) |i| {
+        print("{}, ", .{i});
+    }
+    print("}}\n", .{});
 }
