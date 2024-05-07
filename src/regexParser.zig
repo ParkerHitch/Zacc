@@ -7,17 +7,55 @@ const BoundedArr256 = std.BoundedArray(AutomataNode, 256);
 // Generates and stores NONDETERMINISTIC FA for the spec
 pub const specNodalNFA: NodalFA = nodalNFAGen: {
     const tokenTypes = std.meta.fields(TokenType);
-    const tonkenNodalNFAs: NodalFA[tokenTypes.len] = undefined;
+    var tonkenNodalNFAs: [tokenTypes.len]NodalFA = undefined;
 
     for (tokenTypes, 0..) |e, i| {
         const tt: TokenType = @enumFromInt(e.value);
         const regex = tt.getRegex();
-        tonkenNodalNFAs[i] = genNodalNFA(regex);
+        tonkenNodalNFAs[i] = genNodalNFA(regex, tt) catch {
+            @compileLog("INVALIDREGEX FOR: ", tt);
+            break :nodalNFAGen undefined;
+        };
     }
 
-    // TODO: MERGE NFAS
+    var mergedNFA: NodalFA = undefined;
+    var mergedNodes: []const AutomataNode = &[0]AutomataNode{};
+    var baseNode: AutomataNode = .{
+        .id = 0,
+    };
 
-    break :nodalNFAGen undefined;
+    mergedNFA.acceptingNodes = &[0]usize{};
+    mergedNFA.acceptingTokens = &[0]TokenType{};
+    var id = 1;
+    for (tonkenNodalNFAs) |nfa| {
+        const zeroId = id;
+        baseNode.addExit(0, zeroId);
+        for (nfa.nodes) |node| {
+            var newNode: AutomataNode = .{
+                .id = node.id + zeroId,
+                .acceptsToken = node.acceptsToken,
+            };
+            std.debug.assert(newNode.id == id);
+            if (newNode.acceptsToken != TokenType.NOTOKEN) {
+                mergedNFA.acceptingNodes = (mergedNFA.acceptingNodes orelse unreachable) ++ .{id};
+                mergedNFA.acceptingTokens = (mergedNFA.acceptingTokens orelse unreachable) ++ .{newNode.acceptsToken};
+            }
+
+            for (node.transitionKeys, node.transitionDests) |k, d| {
+                newNode.transitionKeys = newNode.transitionKeys ++ .{k};
+                newNode.transitionDests = newNode.transitionDests ++ .{d + zeroId};
+            }
+            mergedNodes = mergedNodes ++ .{newNode};
+            id += 1;
+        }
+    }
+    mergedNodes = .{baseNode} ++ mergedNodes;
+    mergedNFA.baseNode = &mergedNFA.nodes[0];
+    mergedNFA.nodes = mergedNodes;
+
+    const out = mergedNFA.getRuntimeUsable();
+
+    break :nodalNFAGen out;
 };
 
 fn genNodalNFA(regex: []const u8, acceptingType: TokenType) InvalidRegexError!NodalFA {
@@ -57,7 +95,7 @@ fn createForContext(regex: []const u8, baseID: usize, parenLvl: u8, arr: *Bounde
                 currentID = inner.endNode.id + 1;
                 previousNode = currentNode;
                 currentNode = inner.endNode;
-                i += inner.charCount + 1;
+                i += inner.charCount;
                 if (i >= regex.len)
                     break;
                 continue;
@@ -78,9 +116,9 @@ fn createForContext(regex: []const u8, baseID: usize, parenLvl: u8, arr: *Bounde
             } else if (c == '*') {
                 const newBlank = try AutomataNode.addNewToArr(currentID, TokenType.NOTOKEN, arr);
                 currentID += 1;
+                previousNode.addExit(0, currentNode.id);
+                currentNode.addExit(0, previousNode.id);
                 currentNode.addExit(0, newBlank.id);
-                newBlank.addExit(0, previousNode.id);
-                previousNode.addExit(0, newBlank.id);
                 currentNode = newBlank;
                 continue;
             } else if (c == '?') {
@@ -190,6 +228,8 @@ pub const AutomataNode = struct {
 pub const NodalFA = struct {
     nodes: []const AutomataNode,
     baseNode: *const AutomataNode,
+    acceptingNodes: ?[]const usize = null,
+    acceptingTokens: ?[]const TokenType = null,
 
     pub fn printSelf(self: @This()) void {
         for (self.nodes) |node| {
@@ -233,6 +273,8 @@ pub const NodalFA = struct {
         const out: NodalFA = .{
             .nodes = &outNodes,
             .baseNode = &outNodes[0],
+            .acceptingNodes = self.acceptingNodes,
+            .acceptingTokens = self.acceptingTokens,
         };
         return out;
     }
@@ -257,8 +299,15 @@ test "Node Func Tests" {
 
 fn runTest(comptime regex: []const u8, comptime acceptType: ?TokenType) !void {
     print("Testing Regex: \"{s}\"! \n\n", .{regex});
-    const testNFA: NodalFA = comptime (try genNodalNFA(regex, acceptType orelse TokenType.ID)).getRuntimeUsable();
-    testNFA.printSelf();
+    const possibleNFA = comptime genNodalNFA(regex, acceptType orelse TokenType.ID);
+    const testNFA: ?NodalFA = comptime if (possibleNFA) |fa| fa.getRuntimeUsable() else |_| null;
+    // comptime (try genNodalNFA(regex, acceptType orelse TokenType.ID)).getRuntimeUsable();
+    if (testNFA) |nfa| {
+        nfa.printSelf();
+    } else {
+        print("ERROR!!! {any}\n", .{possibleNFA});
+        // return possibleNFA;
+    }
     print("\nDone!\n", .{});
 }
 
@@ -270,6 +319,9 @@ test "Runtime Test" {
     try runTest("a(1|2|3)*", null);
     try runTest("a[0-9]", null);
     try runTest("1[a-zA-Z]", null);
+    try runTest("a([1-3]|d)*f", null);
+    try runTest("(a|b|c)(1|2|3)", null);
+    try runTest("(a|b|c)123", null);
 }
 
 test "While" {
@@ -278,7 +330,7 @@ test "While" {
     print("\n{}\n", .{i});
 }
 
-test "Lang Test" {
+test "Lang Test Individual" {
     const tokenTypeFields = comptime std.meta.fields(TokenType);
     const tokenTypes = comptime getTTs: {
         var arr: [tokenTypeFields.len]TokenType = undefined;
@@ -300,13 +352,9 @@ test "Lang Test" {
     inline for (regexes) |r| {
         try runTest(r, null);
     }
+}
 
-    // for (0..tokenTypes.len) |i| {
-    //     // @compileLog(i);
-    //     // @compileLog(regex);
-    //     const tt: TokenType = comptime @enumFromInt(i);
-    //     const regex = comptime tt.getRegex();
-    //     // @compileLog(regex);
-    //     try runTest(regex, tt);
-    // }
+test "Spec Test NFA Combined" {
+    print("\nTESTING SPEC COMBINED\n", .{});
+    specNodalNFA.printSelf();
 }

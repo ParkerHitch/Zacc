@@ -18,7 +18,7 @@ pub const TokenType = enum(u8) {
     pub fn getRegex(self: TokenType) [:0]const u8 {
         return switch (self) {
             .EOF => "",
-            .ID => "[a-zA-Z_][a-zA-Z_0-9]*",
+            .ID => "([a-zA-Z]|_)([a-zA-Z0-9]|_)*",
             .L_ASSIGN => "<-",
             .R_ASSIGN => "->",
             .NUM => "-?[0-9]+(.[0-9]*)?",
