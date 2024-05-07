@@ -11,16 +11,94 @@ const DfaNodeSet = BitSet(specNodalNFA.nodes.len);
 //   based on specNodalNFA.
 //   Each node contains a set of nodes in specNodalNFA.
 pub const specNodalDFA: NodalDFA = nodalDFAGen: {
+    @setEvalBranchQuota(1000000);
+    const charSet = BitSet(std.math.maxInt(u8));
+
     var outDfa: NodalDFA = undefined;
-    var dfaNodes: []const DfaNode = &.{};
+    var dfaNodes: [specNodalNFA.nodes.len * 8]DfaNode = undefined;
+    var numNodes = 0;
     const baseNode = DfaNode{
         .id = 0,
         .data = specNodalNFA.baseNode.epsillonClosure(specNodalNFA.nodes, null),
     };
-    dfaNodes = dfaNodes ++ .{baseNode};
+    dfaNodes[0] = baseNode;
+    numNodes += 1;
 
-    outDfa.nodes = dfaNodes;
+    var checkedNum = 0;
+    var checking: *DfaNode = undefined;
+    while (checkedNum < numNodes) : (checkedNum += 1) {
+        checking = &dfaNodes[checkedNum];
+        // We essentially need to find all the transitions out of the states within checking
+        //   and group them by character. So we iterate through all of the states until we find a char
+        //   to check and then iterate again to find all the transitions that use that cher.
+        var nodeIter = checking.data.iterator(.{});
+        var checkedChars = charSet.initEmpty();
+        checkedChars.set(0);
+        while (nodeIter.next()) |nodeId| {
+            // @compileLog("Evaling: ", nodeId);
+            const nodeWithTrans: NfaNode = specNodalNFA.nodes[nodeId];
+            for (nodeWithTrans.transitionKeys, nodeWithTrans.transitionDests) |k, d| {
+                if (!checkedChars.isSet(k)) {
+                    checkedChars.set(k);
+                    // We have found a transition out of the current checking dfa node.
+                    //   We now have to find all the other paths out of the checking node
+                    //   that this character could lead and make a new dfa node including all of these
+                    var newDfaNode: DfaNode = .{
+                        .id = numNodes,
+                        .data = specNodalNFA.nodes[d].epsillonClosure(specNodalNFA.nodes, null),
+                    };
+                    // Check through rest of nodes for transitions using same char.
+                    // Can start at the node after current since all previous nodes
+                    // would have had their characters iterated thu. Also I can't think
+                    // of how one node of the nfa shouldn't have two transition on the
+                    // same (non epsillon) character. If they can might have to start at current node.
+                    var newIter = nodeIter;
+                    while (newIter.next()) |potTransNodeId| {
+                        const nodePotentiallyWithTrans: NfaNode = specNodalNFA.nodes[potTransNodeId];
+                        for (nodePotentiallyWithTrans.transitionKeys, nodePotentiallyWithTrans.transitionDests) |k2, d2| {
+                            // Found another transition with same key. Add epsillon closure of dest to existing closure.
+                            if (k2 == k) {
+                                newDfaNode.data = specNodalNFA.nodes[d2].epsillonClosure(specNodalNFA.nodes, newDfaNode.data);
+                            }
+                        }
+                    }
+                    // We have created a new dfa node comprised of nfa nodes.
+                    // We now need to check if it already exists in our list.
+                    // If it does we can simply add a transition from current
+                    // into it. If not we must actually add it to the array.
+                    for (0..numNodes) |nodeNum| {
+                        if (dfaNodes[nodeNum].data.eql(newDfaNode.data)) {
+                            // Just add transition. Don't add to list of nodes.
+                            checking.addExit(k, nodeNum);
+                            break;
+                        }
+                    } else {
+                        // Else only runs if break doesn't hit
+                        // Add transitions from checking into new node.
+                        checking.addExit(k, newDfaNode.id);
+                        // Add new node to array.
+                        dfaNodes[numNodes] = newDfaNode;
+                        numNodes += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    outDfa.nodes = dfaNodes[0..numNodes];
     outDfa.baseNode = &dfaNodes[0];
+    outDfa.acceptingNodes = &.{};
+    outDfa.acceptingTokens = &.{};
+
+    for (outDfa.nodes) |dfaNode| {
+        var nfaNodeIter = dfaNode.data.iterator(.{});
+        while (nfaNodeIter.next()) |nfaNode| {
+            if (specNodalNFA.nodes[nfaNode].acceptsToken != .NOTOKEN) {
+                outDfa.acceptingNodes = (outDfa.acceptingNodes orelse unreachable) ++ .{dfaNode.id};
+                outDfa.acceptingTokens = (outDfa.acceptingTokens orelse unreachable) ++ .{specNodalNFA.nodes[nfaNode].acceptsToken};
+            }
+        }
+    }
 
     const realOut = outDfa.getRuntimeUsable();
 
@@ -225,6 +303,10 @@ pub fn AutomataNode(comptime dataType: type, comptime defaultData: dataType) typ
         }
 
         pub fn epsillonClosure(self: *const @This(), availibleNodes: []const @This(), existingClosure: ?DfaNodeSet) DfaNodeSet {
+            // Helps with getting rid of random single blank nodes when converting to dfa.
+            if (self.transitionKeys.len == 1 and self.transitionKeys[0] == 0 and self.acceptsToken == .NOTOKEN) {
+                return availibleNodes[self.transitionDests[0]].epsillonClosure(availibleNodes, existingClosure);
+            }
             var newClosure = existingClosure orelse DfaNodeSet.initEmpty();
             // print("\n{} contains: {{", .{self.id});
             // var iter = newClosure.iterator(.{});
@@ -256,17 +338,47 @@ fn NodalFA(comptime nodeT: type) type {
             print("\nNODES:\n", .{});
             for (self.nodes) |node| {
                 print("  {}", .{node.id});
+                if (@TypeOf(node.data) == DfaNodeSet) {
+                    var membIter = node.data.iterator(.{});
+                    if (membIter.next()) |firstElem| {
+                        print(" - {{{}", .{firstElem});
+                        while (membIter.next()) |elem| {
+                            print(", {}", .{elem});
+                        }
+                        print("}}", .{});
+                    }
+                }
                 if (node.acceptsToken != .NOTOKEN) {
                     print(" - ACCEPTS: {}\n", .{node.acceptsToken});
                 } else {
                     print("\n", .{});
                 }
+                var prevK: u8 = 0;
+                var prevD: usize = 0;
+                var printedLast = true;
                 for (node.transitionKeys, node.transitionDests) |k, d| {
                     if (k != 0) {
-                        print("  |-\"{c}\"->{d}\n", .{ k, d });
+                        if (@as(i32, k) - prevK != 1 or d != prevD) {
+                            if (!printedLast) {
+                                print("...\n  |-\"{c}\"->{d}\n", .{ prevK, prevD });
+                            }
+                            print("  |-\"{c}\"->{d}\n", .{ k, d });
+                            printedLast = true;
+                        } else {
+                            printedLast = false;
+                        }
+                        prevK = k;
+                        prevD = d;
                     } else {
+                        if (!printedLast) {
+                            print("...\n  |-\"{c}\"->{d}\n", .{ prevK, prevD });
+                        }
+                        printedLast = true;
                         print("  |----->{d}\n", .{d});
                     }
+                }
+                if (!printedLast) {
+                    print("...\n  |-\"{c}\"->{d}\n", .{ prevK, prevD });
                 }
             }
             if (self.acceptingNodes) |nds| {
@@ -398,4 +510,8 @@ test "Test Epsillon Closure" {
         print("{}, ", .{i});
     }
     print("}}\n", .{});
+}
+
+test "Dfa" {
+    specNodalDFA.printSelf();
 }
