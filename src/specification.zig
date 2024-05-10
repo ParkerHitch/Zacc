@@ -1,7 +1,7 @@
 const std = @import("std");
 const print = std.debug.print;
 
-pub const TokenType = enum(u8) {
+pub const TokenType = enum(u16) {
     EOF,
     ID,
     L_ASSIGN,
@@ -11,8 +11,8 @@ pub const TokenType = enum(u8) {
     MINUS,
     MULT,
     DIV,
-    LPAREN,
-    RPAREN,
+    L_PAREN,
+    R_PAREN,
     SEMICOLON,
     NOTOKEN,
 
@@ -27,15 +27,15 @@ pub const TokenType = enum(u8) {
             .MINUS => "-",
             .MULT => "\\*",
             .DIV => "/",
-            .LPAREN => "\\(",
-            .RPAREN => "\\)",
+            .L_PAREN => "\\(",
+            .R_PAREN => "\\)",
             .SEMICOLON => ";",
             .NOTOKEN => "",
         };
     }
 };
 
-pub const Token = union(TokenType) { EOF: void, ID: [:0]const u8, L_ASSIGN: void, R_ASSIGN: void, NUM: f32, PLUS: void, MULT: void, DIV: void, LPAREN: void, RPAREN: void, SEMICOLON: void, NOTOKEN: void };
+pub const Token = union(TokenType) { EOF: void, ID: [:0]const u8, L_ASSIGN: void, R_ASSIGN: void, NUM: f32, PLUS: void, MULT: void, DIV: void, L_PAREN: void, R_PAREN: void, SEMICOLON: void, NOTOKEN: void };
 
 pub const SymbolClass = enum {
     Terminal,
@@ -46,7 +46,6 @@ pub const NonTerminalSymbol = enum {
     SPRIME,
     S,
     E,
-    V,
     F,
     T,
 };
@@ -69,10 +68,6 @@ pub const Production = struct {
             }});
         }
     }
-};
-
-const sym: Symbol = {
-    .T;
 };
 
 pub const grammar = [_]Production{
@@ -123,8 +118,11 @@ pub const grammar = [_]Production{
         .{ .Terminal = .NUM },
     } },
     Production{ .LHS = .F, .RHS = &[_]Symbol{
-        .{ .Terminal = .LPAREN },
+        .{ .Terminal = .L_PAREN },
+        .{ .NonTerminal = .E },
+        .{ .Terminal = .R_PAREN },
     } },
+    // Production{ .LHS = .F, .RHS = &[0]Symbol{} }
 };
 
 test "printProds" {
