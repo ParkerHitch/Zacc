@@ -14,6 +14,136 @@ pub fn parse(input: []Token) bool {
     return true;
 }
 
+const ParseTable = makeTabe: {
+    break :makeTabe undefined;
+};
+
+// Generating state transition automata
+
+const ParserState = struct {
+    id: usize,
+    items: []const Item,
+
+    pub fn closure(self: *const @This(), outId: ?usize) @This() {
+        var addedItem = true;
+        var editable = self.items[0..].*;
+        var out: []Item = &editable;
+        while (addedItem) {
+            addedItem = false;
+            for (out) |item| {
+                // There have to be symbols following the current position.
+                if (item.dotPos >= item.prod.RHS.len) {
+                    continue;
+                }
+                // The symbol following the current position must be nonterminal.
+                switch (item.prod.RHS[item.dotPos]) {
+                    .Terminal => continue,
+                    .NonTerminal => |symbol| {
+                        const followSymbs = item.prod.RHS[item.dotPos + 1 ..];
+                        var followFirsts = calcFirst(followSymbs);
+                        if (calcNullable(followSymbs)) {
+                            followFirsts.setUnion(item.lookaheadSymbols);
+                        }
+                        for (&grammar) |*prod| {
+                            if (prod.LHS != symbol) {
+                                continue;
+                            }
+                            var newItem = Item{
+                                .prod = prod,
+                                .dotPos = 0,
+                                .lookaheadSymbols = followFirsts,
+                            };
+                            for (out) |*existingItem| {
+                                if (existingItem.eqlIgnoreLA(&newItem)) {
+                                    const existingLAs = existingItem.lookaheadSymbols;
+                                    if (existingLAs.supersetOf(followFirsts)) {
+                                        // If our new one exactle matches one in the set we stop everything
+                                        break;
+                                    }
+                                    // otherwise we add to the follow set.
+                                    addedItem = true;
+                                    // @compileLog(existingItem.lookaheadSymbols);
+                                    existingItem.lookaheadSymbols.setUnion(newItem.lookaheadSymbols);
+                                    // @compileLog(existingItem.lookaheadSymbols);
+                                    break;
+                                }
+                            } else {
+                                // Gets here if eqlIgnoreLA never hits
+                                addedItem = true;
+                                var newOut = (out ++ .{newItem}).*;
+                                out = &newOut;
+                            }
+                        }
+                    },
+                }
+            }
+        }
+        const realOut = out[0..].*;
+        return .{
+            .id = outId orelse 0,
+            .items = &realOut,
+        };
+    }
+
+    pub fn printSelf(self: *const @This()) void {
+        print("Parser State: {}\n", .{self.id});
+        for (self.items) |item| {
+            item.printSelf();
+        }
+    }
+};
+
+const Item = struct {
+    prod: *const Production, // Index into specification.grammar of the production this item represents.
+    dotPos: usize, // Index of the symbol that the dot is immediately before.
+    lookaheadSymbols: TerminalSymbolSet, // Set of all tokens that could follow this item. Indecies into TokenType.
+
+    pub fn eqlStrict(self: *const @This(), other: *const @This()) bool {
+        return self.prod == other.prod and
+            self.dotPos == other.dotPos and
+            self.lookaheadSymbols.eql(other.lookaheadSymbols);
+    }
+
+    pub fn eqlIgnoreLA(self: *const @This(), other: *const @This()) bool {
+        return self.prod == other.prod and
+            self.dotPos == other.dotPos;
+    }
+
+    pub fn printSelf(self: *const @This()) void {
+        print("{s} ->", .{@tagName(self.prod.LHS)});
+        for (self.prod.RHS, 0..) |symb, i| {
+            if (i == self.dotPos) {
+                print(" •", .{});
+            }
+            print(" {s}", .{switch (symb) {
+                .NonTerminal => |nonTermSymb| @tagName(nonTermSymb),
+                .Terminal => |termSymb| @tagName(termSymb),
+            }});
+        }
+        print(" , {{", .{});
+        var iter = self.lookaheadSymbols.iterator(.{});
+        while (iter.next()) |ttInd| {
+            const tt: TokenType = @enumFromInt(ttInd);
+            print(" {s}", .{@tagName(tt)});
+        }
+        print(" }}\n", .{});
+    }
+};
+
+const ParseActionType = enum {
+    SHIFT,
+    REDUCE,
+    ACCEPT,
+    ERROR,
+};
+
+const ParseAction = union(ParseActionType) {
+    SHIFT: usize,
+    REDUCE: usize,
+    ACCEPT: void,
+    ERROR: void,
+};
+
 // Properties of the grammar useful for parsing:
 const numTerminalSymbols = @typeInfo(TokenType).Enum.fields.len;
 const numNonterminalSymbols = @typeInfo(NonTerminalSymbol).Enum.fields.len;
@@ -98,7 +228,7 @@ fn fetchFirst(symb: Symbol) TerminalSymbolSet {
     return first[symbInd(symb)];
 }
 
-fn calcFirst(sequence: []Symbol) TerminalSymbolSet {
+fn calcFirst(sequence: []const Symbol) TerminalSymbolSet {
     var out = TerminalSymbolSet.initEmpty();
     for (sequence) |symb| {
         out.setUnion(fetchFirst(symb));
@@ -186,3 +316,27 @@ test "follow test" {
         printTSymbSet(&set);
     }
 }
+
+test "closure test" {
+    @setEvalBranchQuota(1259);
+    const baseState = comptime ParserState{ .id = 0, .items = &.{.{
+        .prod = &grammar[0],
+        .dotPos = 0,
+        .lookaheadSymbols = TerminalSymbolSet.initEmpty(),
+    }} };
+    const closure = comptime baseState.closure(null);
+    for (closure.items) |item| {
+        item.printSelf();
+    }
+}
+
+// test "set test" {
+//     comptime {
+//         var t1 = TerminalSymbolSet.initEmpty();
+//         var t2 = TerminalSymbolSet.initEmpty();
+//         t1.set(1);
+//         t1.set(2);
+//         t2.set(2);
+//         @compileLog(t1.supersetOf(t2));
+//     }
+// }
