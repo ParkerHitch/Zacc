@@ -106,7 +106,7 @@ const DoubleBufReader = struct {
     }
 
     fn getNextChar(self: *@This()) !?u8 {
-        if (self.loc > self.last) {
+        if (self.loc >= self.last) {
             const nextBytes = try self.reader.read((if (self.buf1Current) self.buf2 else self.buf1)[0..]);
             if (nextBytes == 0)
                 return null;
