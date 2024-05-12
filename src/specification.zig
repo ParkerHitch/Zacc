@@ -53,6 +53,19 @@ pub const NonTerminalSymbol = enum {
 pub const Symbol = union(SymbolClass) {
     Terminal: TokenType,
     NonTerminal: NonTerminalSymbol,
+
+    pub fn eql(self: @This(), other: @This()) bool {
+        return switch (self) {
+            .Terminal => |tt| switch (other) {
+                .Terminal => |tt2| tt == tt2,
+                .NonTerminal => false,
+            },
+            .NonTerminal => |nts| switch (other) {
+                .Terminal => false,
+                .NonTerminal => |nts2| nts == nts2,
+            },
+        };
+    }
 };
 
 pub const Production = struct {

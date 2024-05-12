@@ -85,6 +85,25 @@ const ParserState = struct {
         };
     }
 
+    pub fn goto(self: *const @This(), transitionSymb: Symbol, outId: ?usize) @This() {
+        var outInitial: []const Item = &.{};
+        for (self.items) |item| {
+            // If there is a next item and that item equals our transition symbol
+            if (item.dotPos < item.prod.RHS.len and item.prod.RHS[item.dotPos].eql(transitionSymb)) {
+                outInitial = outInitial ++ .{.{
+                    .prod = item.prod,
+                    .dotPos = item.dotPos + 1,
+                    .lookaheadSymbols = item.lookaheadSymbols,
+                }};
+            }
+        }
+        const outStateInitial: @This() = .{
+            .id = outId orelse 0,
+            .items = outInitial,
+        };
+        return outStateInitial.closure(outId);
+    }
+
     pub fn printSelf(self: *const @This()) void {
         print("Parser State: {}\n", .{self.id});
         for (self.items) |item| {
@@ -119,6 +138,9 @@ const Item = struct {
                 .NonTerminal => |nonTermSymb| @tagName(nonTermSymb),
                 .Terminal => |termSymb| @tagName(termSymb),
             }});
+        }
+        if (self.dotPos == self.prod.RHS.len) {
+            print(" •", .{});
         }
         print(" , {{", .{});
         var iter = self.lookaheadSymbols.iterator(.{});
@@ -317,26 +339,21 @@ test "follow test" {
     }
 }
 
-test "closure test" {
-    @setEvalBranchQuota(1259);
+test "state ops test" {
+    @setEvalBranchQuota(3000);
     const baseState = comptime ParserState{ .id = 0, .items = &.{.{
         .prod = &grammar[0],
         .dotPos = 0,
         .lookaheadSymbols = TerminalSymbolSet.initEmpty(),
     }} };
     const closure = comptime baseState.closure(null);
+    print("Base pos closure:\n", .{});
     for (closure.items) |item| {
         item.printSelf();
     }
+    print("Transition on T:\n", .{});
+    const c2 = comptime closure.goto(.{ .NonTerminal = .T }, null);
+    for (c2.items) |item| {
+        item.printSelf();
+    }
 }
-
-// test "set test" {
-//     comptime {
-//         var t1 = TerminalSymbolSet.initEmpty();
-//         var t2 = TerminalSymbolSet.initEmpty();
-//         t1.set(1);
-//         t1.set(2);
-//         t2.set(2);
-//         @compileLog(t1.supersetOf(t2));
-//     }
-// }
