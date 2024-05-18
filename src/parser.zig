@@ -8,15 +8,205 @@ const Production = spec.Production;
 const grammar = spec.grammar;
 const print = std.debug.print;
 const TerminalSymbolSet = std.bit_set.StaticBitSet(numTerminalSymbols);
+const SymbolSet = std.bit_set.StaticBitSet(numSymbols);
 
 pub fn parse(input: []Token) bool {
     _ = input;
     return true;
 }
 
+const TableRow = [numSymbols]ParseAction;
 const ParseTable = makeTabe: {
-    break :makeTabe undefined;
+    @setEvalBranchQuota(1000000);
+    const blankRow = [1]ParseAction{.{ .ERROR = {} }} ** numSymbols;
+    var out: []TableRow = &.{};
+
+    const baseRule = &grammar[0];
+    if (!baseRule.RHS[baseRule.RHS.len - 1].eql(.{ .Terminal = .EOF })) {
+        @compileError("Grammar error! First production must end in an EOF token.");
+    }
+
+    const initialItem = Item{
+        .prod = baseRule,
+        .dotPos = 0,
+        .lookaheadSymbols = TerminalSymbolSet.initEmpty(),
+    };
+
+    // Initialize states seen with a state containing closure of base grammar rule
+    var editable = [1]ParserState{ParserState.closure(&.{ .id = 0, .items = &.{initialItem} }, 0)};
+    var states: []ParserState = &editable;
+    var unprocessed: []const *ParserState = &.{&states[0]};
+
+    while (unprocessed.len > 0) {
+        // Pop unprocessed item from stack
+        const currentParseState: *const ParserState = unprocessed[0];
+        unprocessed = unprocessed[1..];
+
+        var checkedSymbols = SymbolSet.initEmpty();
+        var currentActions: TableRow = blankRow;
+
+        for (currentParseState.items) |*item| {
+            // If the dot is NOT at it's rightmost position
+            if (item.dotPos < item.prod.RHS.len) {
+                // Read the symbol immediately after the dot
+                const symb = item.prod.RHS[item.dotPos];
+
+                if (symb.eql(.{ .Terminal = .EOF })) {
+                    addShift(&currentActions, symb, 0);
+                    checkedSymbols.set(symbInd(symb));
+                    continue;
+                }
+
+                // If that symbol has not already been checked for this state
+                if (!checkedSymbols.isSet(symbInd(symb))) {
+                    // It has now
+                    checkedSymbols.set(symbInd(symb));
+                    // Eat the symbol (shift dot left)
+                    const newParseState = currentParseState.goto(symb, states.len);
+                    // DestID is the state we will transition into. Could be new or existing.
+                    var destID = newParseState.id;
+                    // Now we check if the core of the state created by eating the symbol equals the core of any existing state
+                    for (states) |*existingState| {
+                        if (newParseState.eqlIgnoreLA(existingState)) {
+                            // At this point we have found a state (existingState) whose core equals that of the created state (newParseState)
+                            // Merge the two:
+                            const mergedState = ParserState.merge(existingState, &newParseState);
+
+                            if (mergedState.id == existingState.id) {
+                                // MERGED IS DIFFERENT FROM EXISTING
+                                // Their LAs are different so we set the existing to be the merged and mark it for reprocessing
+                                destID = mergedState.id;
+                                states[mergedState.id] = mergedState;
+                                unprocessed = unprocessed ++ .{&states[mergedState.id]};
+                            } else {
+                                // MERGED IS THE SAME AS EXISTING. Discard it.
+                                // Make transition into existing
+                                destID = existingState.id;
+                            }
+                            break;
+                        }
+                    } else { // I <3 for-else.
+                        // We did not break. Therefore no matches were found and newParseState is truly new.
+                        // Add it to the list and mark for processing
+                        var newStates = (states ++ .{newParseState}).*;
+                        states = &newStates;
+                        unprocessed = unprocessed ++ .{&states[newParseState.id]};
+                    }
+                    // Regardless of if the new state was merged, discarded, or was new, we need to add a transition to it
+                    // Add transition:
+                    addShift(&currentActions, symb, destID);
+                }
+            } else {
+                // Dot at end. Time to reduce
+                // Lookahead iter
+                var LAiter = item.lookaheadSymbols.iterator(.{});
+                while (LAiter.next()) |termID| {
+                    switch (currentActions[termID]) {
+                        .ERROR => {
+                            // Good to reduce. No conflict.
+                            currentActions[termID] = .{ .REDUCE = item.prod };
+                        },
+                        .REDUCE => |existingProd| {
+                            if (existingProd == item.prod) {
+                                // Somehow that reduce rule already exists.
+                                // Probably shouldn't happen but idk so handling it just in case.
+                                // By handling it I mean not handling it since we're all good.
+                                // No conflict.
+                            } else {
+                                const errorToken: TokenType = @enumFromInt(termID);
+                                @compileLog("Offending rule 1: ", item.prod.*);
+                                @compileLog("Offending rule 2: ", existingProd.*);
+                                @compileError("Reduce/Reduce conflict found when generating LALR parser on token: " ++ @tagName(errorToken));
+                            }
+                        },
+                        .SHIFT, .ACCEPT => {
+                            const errorToken: TokenType = @enumFromInt(termID);
+                            @compileError("Shift/Reduce conflict found when generating LALR parser on token: " ++ @tagName(errorToken));
+                        },
+                    }
+                }
+            }
+        }
+
+        // We are done with the for loop. We have checked every item in the state. Now add the state's fully-formed actions to output:
+        if (currentParseState.id >= out.len) {
+            var newActions = (out ++ .{currentActions}).*;
+            out = &newActions;
+        } else {
+            out[currentParseState.id] = currentActions;
+        }
+    }
+
+    // @compileLog(states[9]);
+
+    const outReal = out[0..].*;
+    break :makeTabe outReal;
 };
+
+fn addShift(row: *TableRow, symb: Symbol, dest: usize) void {
+    const transInd = symbInd(symb);
+    switch (row.*[transInd]) {
+        .ERROR => {
+            // Good to shift. No conflict.
+            if (symb.eql(.{ .Terminal = .EOF })) {
+                row.*[transInd] = .{ .ACCEPT = {} };
+            } else {
+                row.*[transInd] = .{ .SHIFT = dest };
+            }
+        },
+        .REDUCE => |_| {
+            const errorToken: TokenType = @enumFromInt(transInd);
+            @compileError("Shift/Reduce conflict found when generating LALR parser on token: " ++ @tagName(errorToken));
+        },
+        .SHIFT, .ACCEPT => unreachable,
+    }
+}
+
+fn printParseTable(table: []const TableRow) void {
+    print("    ", .{});
+    for (0..numTerminalSymbols) |termI| {
+        const tt: TokenType = @enumFromInt(termI);
+        var tn = @tagName(tt);
+        if (tn.len > 4) {
+            print(" {s}", .{tn[0..4]});
+        } else {
+            print(" {s: <4}", .{tn});
+        }
+    }
+    for (0..numNonterminalSymbols) |ntI| {
+        const tt: NonTerminalSymbol = @enumFromInt(ntI);
+        var tn = @tagName(tt);
+        if (tn.len > 4) {
+            print(" {s}", .{tn[0..4]});
+        } else {
+            print(" {s: <4}", .{tn});
+        }
+    }
+    print("\n", .{});
+    for (table, 0..) |row, i| {
+        print("{d: >3}:", .{i});
+        for (row) |action| {
+            switch (action) {
+                .SHIFT => |dest| {
+                    print(" s{d: <3}", .{dest});
+                },
+                .ERROR => {
+                    print(" e   ", .{});
+                },
+                .ACCEPT => {
+                    print(" a   ", .{});
+                },
+                .REDUCE => |prod| {
+                    const baseAddr: [*]const Production = @ptrCast(&grammar);
+                    const prodAddr: [*]const Production = @ptrCast(prod);
+                    const diff = (@intFromPtr(prodAddr) - @intFromPtr(baseAddr)) / @sizeOf(Production);
+                    print(" r{d: <3}", .{diff});
+                },
+            }
+        }
+        print("\n", .{});
+    }
+}
 
 // Generating state transition automata
 
@@ -104,6 +294,52 @@ const ParserState = struct {
         return outStateInitial.closure(outId);
     }
 
+    pub fn eql(self: *const @This(), other: *const @This()) bool {
+        for (self.items, other.items) |*itm1, *itm2| {
+            if (!itm1.eqlStrict(itm2)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    pub fn eqlIgnoreLA(self: *const @This(), other: *const @This()) bool {
+        if (self.items.len != other.items.len) {
+            return false;
+        }
+        for (self.items, other.items) |*itm1, *itm2| {
+            if (!itm1.eqlIgnoreLA(itm2)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// Returns a new, merged object.
+    /// Id = base.id + 100 if returned object is the same as base.
+    /// Id = base.id if returned val is different from base.
+    pub fn merge(base: *const @This(), new: *const @This()) @This() {
+        var outItems: [base.items.len]Item = undefined;
+        var isDiff = false;
+        for (base.items, new.items, 0..) |*baseItm, *newItm, i| {
+            var newSymbs = baseItm.lookaheadSymbols;
+            newSymbs.setUnion(newItm.lookaheadSymbols);
+            outItems[i] = .{
+                .prod = baseItm.prod,
+                .dotPos = baseItm.dotPos,
+                .lookaheadSymbols = newSymbs,
+            };
+            // If union is not equal to original set
+            if (!isDiff and !outItems[i].lookaheadSymbols.eql(baseItm.lookaheadSymbols)) {
+                isDiff = true;
+            }
+        }
+        return .{
+            .id = if (isDiff) base.id else base.id + 100,
+            .items = &outItems,
+        };
+    }
+
     pub fn printSelf(self: *const @This()) void {
         print("Parser State: {}\n", .{self.id});
         for (self.items) |item| {
@@ -161,13 +397,22 @@ const ParseActionType = enum {
 
 const ParseAction = union(ParseActionType) {
     SHIFT: usize,
-    REDUCE: usize,
+    REDUCE: *const Production,
     ACCEPT: void,
     ERROR: void,
+
+    pub fn isError(self: @This()) bool {
+        return switch (self) {
+            .ERROR => true,
+            else => false,
+        };
+    }
 };
 
 // Properties of the grammar useful for parsing:
-const numTerminalSymbols = @typeInfo(TokenType).Enum.fields.len;
+
+// Minus one since notoken.
+const numTerminalSymbols = @typeInfo(TokenType).Enum.fields.len - 1;
 const numNonterminalSymbols = @typeInfo(NonTerminalSymbol).Enum.fields.len;
 const numSymbols = numTerminalSymbols + numNonterminalSymbols;
 
@@ -348,12 +593,13 @@ test "state ops test" {
     }} };
     const closure = comptime baseState.closure(null);
     print("Base pos closure:\n", .{});
-    for (closure.items) |item| {
-        item.printSelf();
-    }
+    closure.printSelf();
     print("Transition on T:\n", .{});
     const c2 = comptime closure.goto(.{ .NonTerminal = .T }, null);
-    for (c2.items) |item| {
-        item.printSelf();
-    }
+    c2.printSelf();
+}
+
+test "Parse Table Test" {
+    print("\n\nPARSE TABLE:\n", .{});
+    printParseTable(&ParseTable);
 }

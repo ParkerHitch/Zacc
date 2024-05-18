@@ -1,6 +1,7 @@
 const std = @import("std");
 const print = std.debug.print;
 
+// NOTE!!! THE LAST ELEMENT MUST BE A NOTOKEN ELEMENT
 pub const TokenType = enum(u16) {
     EOF,
     ID,
@@ -43,6 +44,7 @@ pub const SymbolClass = enum {
 };
 
 pub const NonTerminalSymbol = enum {
+    PROGRAM,
     SPRIME,
     S,
     E,
@@ -85,14 +87,17 @@ pub const Production = struct {
 
 pub const grammar = [_]Production{
     Production{
-        .LHS = .SPRIME,
-        .RHS = &[_]Symbol{ .{ .NonTerminal = .S }, .{ .Terminal = .EOF } },
+        .LHS = .PROGRAM,
+        .RHS = &[_]Symbol{ .{ .NonTerminal = .SPRIME }, .{ .Terminal = .EOF } },
     },
-    Production{ .LHS = .S, .RHS = &[_]Symbol{
-        .{ .NonTerminal = .S },
-        .{ .Terminal = .SEMICOLON },
-        .{ .NonTerminal = .S },
-    } },
+    Production{
+        .LHS = .SPRIME,
+        .RHS = &[_]Symbol{ .{ .NonTerminal = .S }, .{ .Terminal = .SEMICOLON } },
+    },
+    Production{
+        .LHS = .SPRIME,
+        .RHS = &[_]Symbol{ .{ .NonTerminal = .SPRIME }, .{ .NonTerminal = .S }, .{ .Terminal = .SEMICOLON } },
+    },
     Production{ .LHS = .S, .RHS = &[_]Symbol{
         .{ .Terminal = .ID },
         .{ .Terminal = .L_ASSIGN },
