@@ -1,5 +1,6 @@
 const std = @import("std");
 const spec = @import("specification.zig");
+const lexer = @import("lexer.zig");
 const Token = spec.Token;
 const TokenType = spec.TokenType;
 const NonTerminalSymbol = spec.NonTerminalSymbol;
@@ -9,14 +10,72 @@ const grammar = spec.grammar;
 const print = std.debug.print;
 const TerminalSymbolSet = std.bit_set.StaticBitSet(numTerminalSymbols);
 const SymbolSet = std.bit_set.StaticBitSet(numSymbols);
+const Allocator = std.mem.Allocator;
+const ParseStack = std.ArrayListAligned(ParseStackItem, null);
 
-pub fn parse(input: []Token) bool {
-    _ = input;
-    return true;
+pub fn isValid(input: []TokenType, allocator: Allocator) !bool {
+    var stack = try ParseStack.initCapacity(allocator, 20);
+    defer stack.deinit();
+
+    try stack.append(.{ .parseState = 0 });
+
+    var currentParseState: usize = 0;
+    var inputInd: usize = 0;
+
+    while (inputInd < input.len) {
+        const lookaheadToken = input[inputInd];
+        const currentAction = ParseTable[currentParseState][@intFromEnum(lookaheadToken)];
+        // print("Stack: {any}\n", .{stack.items});
+        switch (currentAction) {
+            .ERROR => {
+                print("Unexpected token: {s} (token # {d})\n", .{ @tagName(lookaheadToken), inputInd });
+                return false;
+            },
+            .ACCEPT => {
+                print("Accepting from state {}\n", .{currentParseState});
+                return true;
+            },
+            .SHIFT => |destState| {
+                print("Shifting from {} into {} on token {s}\n", .{ currentParseState, destState, @tagName(lookaheadToken) });
+                currentParseState = destState;
+                try stack.append(.{ .parseState = destState, .symb = .{ .Terminal = lookaheadToken } });
+                inputInd += 1;
+            },
+            .REDUCE => |prod| {
+                // + 1 since base state of 0.
+                // Idk if it is even possible to reach this condition
+                // if (prod.RHS.len > stack.items.len + 1) {
+                //     print("Unexpected token: {s} (token # {d})\n", .{@tagName(lookaheadToken), inputInd});
+                // }
+                print("Reducing on token {s} using rule: [", .{@tagName(lookaheadToken)});
+                prod.debugPrint();
+                print("]", .{});
+                const baseState = stack.items[stack.items.len - prod.RHS.len - 1].parseState;
+                const transitionInd = symbInd(.{ .NonTerminal = prod.LHS });
+                // print("  State after popping: {}\n", .{baseState});
+                const newState = switch (ParseTable[baseState][transitionInd]) {
+                    .SHIFT => |dest| dest,
+                    else => unreachable,
+                };
+                print(" (Into state: {})\n", .{newState});
+                // print("  State after shifting nonterminal: {}\n", .{newState});
+                currentParseState = newState;
+                try stack.replaceRange(stack.items.len - prod.RHS.len, prod.RHS.len, &.{.{ .parseState = newState, .symb = .{ .NonTerminal = prod.LHS } }});
+            },
+        }
+    }
+
+    print("Incomplete input. Missing EOF.\n", .{});
+    return false;
 }
 
+const ParseStackItem = struct {
+    parseState: usize,
+    symb: Symbol = undefined,
+};
+
 const TableRow = [numSymbols]ParseAction;
-const ParseTable = makeTabe: {
+const ParseTable = makeLalrTable: {
     @setEvalBranchQuota(1000000);
     const blankRow = [1]ParseAction{.{ .ERROR = {} }} ** numSymbols;
     var out: []TableRow = &.{};
@@ -53,7 +112,6 @@ const ParseTable = makeTabe: {
 
                 if (symb.eql(.{ .Terminal = .EOF })) {
                     addShift(&currentActions, symb, 0);
-                    checkedSymbols.set(symbInd(symb));
                     continue;
                 }
 
@@ -140,7 +198,7 @@ const ParseTable = makeTabe: {
     // @compileLog(states[9]);
 
     const outReal = out[0..].*;
-    break :makeTabe outReal;
+    break :makeLalrTable outReal;
 };
 
 fn addShift(row: *TableRow, symb: Symbol, dest: usize) void {
@@ -602,4 +660,20 @@ test "state ops test" {
 test "Parse Table Test" {
     print("\n\nPARSE TABLE:\n", .{});
     printParseTable(&ParseTable);
+}
+
+test "Parsing Test" {
+    var allocator = std.testing.allocator;
+
+    const lexed = try lexer.lexFile("test.txt", allocator);
+
+    print("Does test.txt parse?\n", .{});
+    const parse = try isValid(lexed, allocator);
+    if (parse) {
+        print("YES!!!!\n", .{});
+    } else {
+        print("NO :(\n", .{});
+    }
+
+    allocator.free(lexed);
 }
