@@ -2,3 +2,4 @@ zig-cache
 zig-out
 /src/testing.zig
 /src/utils.zig
+.zig-cache
