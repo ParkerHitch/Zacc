@@ -1,10 +1,12 @@
 const std = @import("std");
+const File = std.fs.File;
 const spec = @import("specification.zig");
 const lexer = @import("lexer.zig");
 const Token = spec.Token;
 const TokenType = spec.TokenType;
 const NonTerminalSymbol = spec.NonTerminalSymbol;
 const Symbol = spec.Symbol;
+const ShallowSymbol = spec.ShallowSymbol;
 const Production = spec.Production;
 const grammar = spec.grammar;
 const print = std.debug.print;
@@ -13,7 +15,7 @@ const SymbolSet = std.bit_set.StaticBitSet(numSymbols);
 const Allocator = std.mem.Allocator;
 const ParseStack = std.ArrayListAligned(ParseStackItem, null);
 
-pub fn isValid(input: []TokenType, allocator: Allocator) !bool {
+pub fn isValid(input: []Token, allocator: Allocator) !bool {
     var stack = try ParseStack.initCapacity(allocator, 20);
     defer stack.deinit();
 
@@ -60,6 +62,17 @@ pub fn isValid(input: []TokenType, allocator: Allocator) !bool {
                 print(" (Into state: {})\n", .{newState});
                 // print("  State after shifting nonterminal: {}\n", .{newState});
                 currentParseState = newState;
+
+                const symbNum = prod.RHS.len;
+                const tempSymbBuffer: []Symbol = try allocator.alloc(Symbol, symbNum);
+                defer allocator.free(tempSymbBuffer);
+
+                for (stack.items[stack.items.len - symbNum ..], 0..) |psi, i| {
+                    tempSymbBuffer[i] = psi.symb;
+                }
+
+                prod.ParseAction(tempSymbBuffer);
+
                 try stack.replaceRange(stack.items.len - prod.RHS.len, prod.RHS.len, &.{.{ .parseState = newState, .symb = .{ .NonTerminal = prod.LHS } }});
             },
         }
@@ -201,7 +214,7 @@ const ParseTable = makeLalrTable: {
     break :makeLalrTable outReal;
 };
 
-fn addShift(row: *TableRow, symb: Symbol, dest: usize) void {
+fn addShift(row: *TableRow, symb: ShallowSymbol, dest: usize) void {
     const transInd = symbInd(symb);
     switch (row.*[transInd]) {
         .ERROR => {
@@ -333,7 +346,7 @@ const ParserState = struct {
         };
     }
 
-    pub fn goto(self: *const @This(), transitionSymb: Symbol, outId: ?usize) @This() {
+    pub fn goto(self: *const @This(), transitionSymb: ShallowSymbol, outId: ?usize) @This() {
         var outInitial: []const Item = &.{};
         for (self.items) |item| {
             // If there is a next item and that item equals our transition symbol
@@ -507,11 +520,11 @@ const nullable: [numSymbols]bool = calcNullables: {
     break :calcNullables out;
 };
 
-fn fetchNullable(symb: Symbol) bool {
+fn fetchNullable(symb: ShallowSymbol) bool {
     return nullable[symbInd(symb)];
 }
 
-fn calcNullable(sequence: []const Symbol) bool {
+fn calcNullable(sequence: []const ShallowSymbol) bool {
     for (sequence) |symb| {
         if (!fetchNullable(symb)) {
             return false;
@@ -549,11 +562,11 @@ const first: [numSymbols]TerminalSymbolSet = calcFirsts: {
     break :calcFirsts out;
 };
 
-fn fetchFirst(symb: Symbol) TerminalSymbolSet {
+fn fetchFirst(symb: ShallowSymbol) TerminalSymbolSet {
     return first[symbInd(symb)];
 }
 
-fn calcFirst(sequence: []const Symbol) TerminalSymbolSet {
+fn calcFirst(sequence: []const ShallowSymbol) TerminalSymbolSet {
     var out = TerminalSymbolSet.initEmpty();
     for (sequence) |symb| {
         out.setUnion(fetchFirst(symb));
@@ -603,7 +616,7 @@ fn fetchFollow(symb: Symbol) TerminalSymbolSet {
 }
 
 // Gets index of symbol into nullable, first, & follow arrays.
-fn symbInd(symb: Symbol) usize {
+fn symbInd(symb: ShallowSymbol) usize {
     return switch (symb) {
         .Terminal => |tt| @intFromEnum(tt),
         .NonTerminal => |nts| numTerminalSymbols + @intFromEnum(nts),
@@ -612,7 +625,7 @@ fn symbInd(symb: Symbol) usize {
 
 test "nullableTest" {
     print("\n{any}\n", .{nullable});
-    print("Calc: {}\n", .{calcNullable(&[_]Symbol{.{ .NonTerminal = .F }})});
+    print("Calc: {}\n", .{calcNullable(&[_]ShallowSymbol{.{ .NonTerminal = .F }})});
 }
 
 fn printTSymbSet(set: *const TerminalSymbolSet) void {
@@ -665,7 +678,13 @@ test "Parse Table Test" {
 test "Parsing Test" {
     var allocator = std.testing.allocator;
 
-    const lexed = try lexer.lexFile("test.txt", allocator);
+    const inFile: File = try std.fs.cwd().openFile("test.txt", .{ .mode = .read_only });
+    defer inFile.close();
+
+    var reader = try lexer.WholeFileBufferReader.init(inFile, allocator);
+    defer reader.deinit();
+
+    const lexed = try lexer.lexFile(&reader, allocator);
 
     print("Does test.txt parse?\n", .{});
     const parse = try isValid(lexed, allocator);
