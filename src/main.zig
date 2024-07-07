@@ -1,19 +1,32 @@
 const std = @import("std");
-
-// const grammar = @import("grammar.zig");
+const ArenaAllocator = std.heap.ArenaAllocator;
+const lexer = @import("lib/lexer.zig");
+const parser = @import("lib/parser.zig");
 
 pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+    var arena = ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
 
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
+    const allocator = arena.allocator();
+    const outw = std.io.getStdOut().writer();
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
+    const inFile = try std.fs.cwd().openFile("test.txt", .{ .mode = .read_only });
+    defer inFile.close();
 
-    try bw.flush(); // don't forget to flush!
+    var reader = try lexer.WholeFileBufferReader.init(inFile, allocator);
+    defer reader.deinit();
+
+    const maybeLexed = lexer.lexFile(&reader, allocator);
+    const lexed = maybeLexed catch {
+        _ = try outw.write("Cannot lex input file.\n");
+        return;
+    };
+
+    const validParse = try parser.parseStream(lexed, allocator);
+
+    if (validParse) {
+        try outw.print("Input file was parsed successfully!", .{});
+    } else {
+        try outw.print("ERROR: Input file cannot be parsed", .{});
+    }
 }

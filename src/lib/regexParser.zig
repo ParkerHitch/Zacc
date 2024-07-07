@@ -1,4 +1,4 @@
-const spec = @import("specification.zig");
+const spec = @import("../lang/specification.zig");
 const TokenType = spec.TokenType;
 const std = @import("std");
 const print = std.debug.print;

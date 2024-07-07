@@ -1,6 +1,6 @@
 const std = @import("std");
 const File = std.fs.File;
-const spec = @import("specification.zig");
+const spec = @import("../lang/specification.zig");
 const lexer = @import("lexer.zig");
 const Token = spec.Token;
 const TokenType = spec.TokenType;
@@ -15,7 +15,7 @@ const SymbolSet = std.bit_set.StaticBitSet(numSymbols);
 const Allocator = std.mem.Allocator;
 const ParseStack = std.ArrayListAligned(ParseStackItem, null);
 
-pub fn isValid(input: []Token, allocator: Allocator) !bool {
+pub fn parseStream(input: []Token, allocator: Allocator) !bool {
     var stack = try ParseStack.initCapacity(allocator, 20);
     defer stack.deinit();
 
@@ -687,7 +687,7 @@ test "Parsing Test" {
     const lexed = try lexer.lexFile(&reader, allocator);
 
     print("Does test.txt parse?\n", .{});
-    const parse = try isValid(lexed, allocator);
+    const parse = try parseStream(lexed, allocator);
     if (parse) {
         print("YES!!!!\n", .{});
     } else {
