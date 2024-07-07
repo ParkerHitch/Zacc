@@ -14,6 +14,7 @@ const TerminalSymbolSet = std.bit_set.StaticBitSet(numTerminalSymbols);
 const SymbolSet = std.bit_set.StaticBitSet(numSymbols);
 const Allocator = std.mem.Allocator;
 const ParseStack = std.ArrayListAligned(ParseStackItem, null);
+const config = @import("config");
 
 pub fn parseStream(input: []Token, allocator: Allocator) !bool {
     var stack = try ParseStack.initCapacity(allocator, 20);
@@ -34,11 +35,14 @@ pub fn parseStream(input: []Token, allocator: Allocator) !bool {
                 return false;
             },
             .ACCEPT => {
-                print("Accepting from state {}\n", .{currentParseState});
+                if (comptime config.verboseParsing)
+                    print("Accepting from state {}\n", .{currentParseState});
                 return true;
             },
             .SHIFT => |destState| {
-                print("Shifting from {} into {} on token {s}\n", .{ currentParseState, destState, @tagName(lookaheadToken) });
+                if (comptime config.verboseParsing)
+                    print("Shifting from {} into {} on token {s}\n", .{ currentParseState, destState, @tagName(lookaheadToken) });
+
                 currentParseState = destState;
                 try stack.append(.{ .parseState = destState, .symb = .{ .Terminal = lookaheadToken } });
                 inputInd += 1;
@@ -49,18 +53,24 @@ pub fn parseStream(input: []Token, allocator: Allocator) !bool {
                 // if (prod.RHS.len > stack.items.len + 1) {
                 //     print("Unexpected token: {s} (token # {d})\n", .{@tagName(lookaheadToken), inputInd});
                 // }
-                print("Reducing on token {s} using rule: [", .{@tagName(lookaheadToken)});
-                prod.debugPrint();
-                print("]", .{});
+
+                if (comptime config.verboseParsing) {
+                    print("Reducing on token {s} using rule: [", .{@tagName(lookaheadToken)});
+                    prod.debugPrint();
+                    print("]", .{});
+                }
+
                 const baseState = stack.items[stack.items.len - prod.RHS.len - 1].parseState;
                 const transitionInd = symbInd(.{ .NonTerminal = prod.LHS });
-                // print("  State after popping: {}\n", .{baseState});
+
                 const newState = switch (ParseTable[baseState][transitionInd]) {
                     .SHIFT => |dest| dest,
                     else => unreachable,
                 };
-                print(" (Into state: {})\n", .{newState});
-                // print("  State after shifting nonterminal: {}\n", .{newState});
+
+                if (comptime config.verboseParsing)
+                    print(" (Into state: {})\n", .{newState});
+
                 currentParseState = newState;
 
                 const symbNum = prod.RHS.len;

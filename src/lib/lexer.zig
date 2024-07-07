@@ -8,6 +8,7 @@ const File = std.fs.File;
 const FileReader = File.Reader;
 const StringHashMap = std.hash_map.StringHashMap(void);
 const print = std.debug.print;
+const config = @import("config");
 
 const TokenList = std.ArrayList(Token);
 
@@ -28,7 +29,10 @@ pub fn lexFile(reader: *WholeFileBufferReader, allocator: Allocator) ![]Token {
             try outArr.append(Token{ .EOF = {} });
             break;
         }
-        print("Reading: {c} @ {}\n", .{ byte, charLoc });
+
+        if (comptime config.verboseLexing)
+            print("Reading: {c} @ {}\n", .{ byte, charLoc });
+
         if (isWhitespace(byte)) {
             if (automataState == 0) {
                 firstCharLoc = charLoc + 1;
@@ -37,8 +41,11 @@ pub fn lexFile(reader: *WholeFileBufferReader, allocator: Allocator) ![]Token {
             if (automata.getAccepting(automataState)) |token| {
                 try outArr.append(token.lexFromString(reader.buffer[firstCharLoc..charLoc]));
 
-                print("Accepted: {}\n", .{token});
-                print("    {s} - {}\n", .{ reader.buffer[firstCharLoc..charLoc], charLoc - firstCharLoc });
+                if (comptime config.verboseLexing) {
+                    print("Accepted: {}\n", .{token});
+                    print("    {s} - {}\n", .{ reader.buffer[firstCharLoc..charLoc], charLoc - firstCharLoc });
+                }
+
                 automataState = 0;
                 firstCharLoc = charLoc + 1;
             } else {
@@ -62,8 +69,10 @@ pub fn lexFile(reader: *WholeFileBufferReader, allocator: Allocator) ![]Token {
 
                     try outArr.append(outToken);
 
-                    print("Accepted: {}\n", .{lastMatchTok orelse unreachable});
-                    print("    {s} - {}\n", .{ reader.buffer[firstCharLoc .. lastLoc + 1], lastLoc + 1 - firstCharLoc });
+                    if (comptime config.verboseLexing) {
+                        print("Accepted: {}\n", .{lastMatchTok orelse unreachable});
+                        print("    {s} - {}\n", .{ reader.buffer[firstCharLoc .. lastLoc + 1], lastLoc + 1 - firstCharLoc });
+                    }
 
                     firstCharLoc = lastLoc + 1;
                     automataState = 0;
