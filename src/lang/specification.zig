@@ -2,7 +2,7 @@ const std = @import("std");
 const print = std.debug.print;
 
 // NOTE!!! THE LAST ELEMENT MUST BE A NOTOKEN ELEMENT
-pub const TokenType = enum(u16) {
+pub const TokenType = enum {
     EOF,
     ID,
     L_ASSIGN,
@@ -74,6 +74,8 @@ pub const NonTerminalSymbol = enum {
 pub const Symbol = union(SymbolClass) {
     Terminal: Token,
     NonTerminal: NonTerminalSymbol,
+    // DataType: type,
+    // Data: *anyopaque,
 
     pub fn toShallow(self: @This()) ShallowSymbol {
         return self;
@@ -119,6 +121,22 @@ pub const ShallowSymbol = union(SymbolClass) {
                 .NonTerminal => |nts2| nts == nts2,
             },
         };
+    }
+
+    pub fn debugPrint(self: @This()) void {
+        switch (self) {
+            .Terminal => |tok| {
+                print("{s}", .{@tagName(tok)});
+                switch (tok) {
+                    .ID => |id| print(": {s}", .{id}),
+                    .NUM => |num| print(": {}", .{num}),
+                    else => return,
+                }
+            },
+            .NonTerminal => |nt| {
+                print("{s}", .{@tagName(nt)});
+            },
+        }
     }
 };
 
@@ -201,7 +219,6 @@ pub const grammar = [_]Production{
         .{ .NonTerminal = .E },
         .{ .Terminal = .R_PAREN },
     } },
-    // Production{ .LHS = .F, .RHS = &[0]ShallowSymbol{} }
 };
 
 test "printProds" {
