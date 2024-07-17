@@ -5,6 +5,7 @@ const print = @import("std").debug.print;
 
 const TokenKind = enum {
     EOF,
+    PRINT,
     ID,
     L_ASSIGN,
     R_ASSIGN,
@@ -21,6 +22,7 @@ const TokenKind = enum {
     pub fn getRegex(self: TokenKind) [:0]const u8 {
         return switch (self) {
             .EOF => "",
+            .PRINT => "print",
             .ID => "([a-zA-Z]|_)([a-zA-Z0-9]|_)*",
             .L_ASSIGN => "<-",
             .R_ASSIGN => "->",
@@ -37,45 +39,50 @@ const TokenKind = enum {
     }
 };
 
-pub const SemanticData = union(enum) {
-    num: f64,
-    id: []const u8,
-    none: void,
-};
+pub const ProductionActions = @import("actions/productionActions.zig");
+pub const OperatorActions = @import("actions/operatorActions.zig");
+pub const SymbolActions = @import("actions/symbolActions.zig");
+
+pub const SemanticData = f64;
 
 const grammar: []const Production = &[_]Production{
-    .{ .rule = "PROGRAM -> SPRIME EOF", .semanticAction = printInput },
-    .{ .rule = "SPRIME -> S SEMICOLON", .semanticAction = printInput },
-    .{ .rule = "SPRIME -> SPRIME S SEMICOLON", .semanticAction = printInput },
-    .{ .rule = "S -> ID L_ASSIGN E", .semanticAction = printInput },
-    .{ .rule = "S -> E R_ASSIGN ID", .semanticAction = printInput },
-    .{ .rule = "E -> E PLUS T", .semanticAction = printInput },
-    .{ .rule = "E -> T", .semanticAction = printInput },
-    .{ .rule = "T -> T MULT F", .semanticAction = printInput },
-    .{ .rule = "T -> T DIV F", .semanticAction = printInput },
-    .{ .rule = "T -> F", .semanticAction = printInput },
-    .{ .rule = "F -> ID", .semanticAction = printInput },
-    .{ .rule = "F -> NUM", .semanticAction = printInput },
-    .{ .rule = "F -> L_PAREN E R_PAREN", .semanticAction = printInput },
+    .{ .rule = "PROGRAM -> SPRIME EOF", .semanticAction = ProductionActions.doNothing },
+    .{ .rule = "SPRIME -> S SEMICOLON", .semanticAction = ProductionActions.doNothing },
+    .{ .rule = "SPRIME -> SPRIME S SEMICOLON", .semanticAction = ProductionActions.doNothing },
+    .{ .rule = "S -> PRINT L_PAREN E R_PAREN", .semanticAction = ProductionActions.print },
+    .{ .rule = "S -> ID L_ASSIGN E", .semanticAction = SymbolActions.leftAssignVariable },
+    .{ .rule = "S -> E R_ASSIGN ID", .semanticAction = SymbolActions.rightAssignVariable },
+    .{ .rule = "E -> E PLUS T", .semanticAction = OperatorActions.add },
+    .{ .rule = "E -> E MINUS T", .semanticAction = OperatorActions.sub },
+    .{ .rule = "E -> T", .semanticAction = ProductionActions.percolateFloat },
+    .{ .rule = "T -> T MULT F", .semanticAction = OperatorActions.mul },
+    .{ .rule = "T -> T DIV F", .semanticAction = OperatorActions.div },
+    .{ .rule = "T -> F", .semanticAction = ProductionActions.percolateFloat },
+    .{ .rule = "F -> ID", .semanticAction = SymbolActions.fetchValue },
+    .{ .rule = "F -> NUM", .semanticAction = ProductionActions.parseFloat },
+    .{ .rule = "F -> MINUS NUM", .semanticAction = OperatorActions.negate },
+    .{ .rule = "F -> L_PAREN E R_PAREN", .semanticAction = ProductionActions.percolateFloatParens },
 };
 
 const Token = specificationGenerator.Token(TokenKind);
 
 const Production = Token.Production(SemanticData);
 
+pub const SymbolData: type = Production.SymbolData;
+
 pub const Specification = Production.CreateSpecification(grammar);
 
 pub const Compiler = compilerGenerator.Compiler(Specification);
 
-fn printInput(rhs: []Production.SymbolData) SemanticData {
+fn printInput(rhs: []SymbolData) SemanticData {
     for (rhs) |symbolData| {
         switch (symbolData) {
             .token => |tok| print("{s} ", .{@tagName(tok.kind)}),
-            .semanticData => |semd| print("{s} ", .{@tagName(semd)}),
+            .semanticData => |semd| print("{d:.2} ", .{semd}),
         }
     }
     print("\n", .{});
-    return .{ .none = {} };
+    return 0;
 }
 
 test "printProds" {
