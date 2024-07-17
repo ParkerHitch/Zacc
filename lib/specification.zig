@@ -59,9 +59,23 @@ fn Specification(comptime Token_: type, comptime SemanticDataType_: type, compti
                 }
             }
 
+            pub fn eql(self: @This(), other: @This()) bool {
+                return switch (self) {
+                    .terminal => |tt| switch (other) {
+                        .terminal => |tt2| tt == tt2,
+                        .nonTerminal => false,
+                    },
+                    .nonTerminal => |nts| switch (other) {
+                        .terminal => false,
+                        .nonTerminal => |nts2| nts == nts2,
+                    },
+                };
+            }
+
             pub fn debugPrint(self: @This()) void {
                 switch (self) {
-                    else => |val| print("{s}", .{@tagName(val)}),
+                    .terminal => |val| print("{s}", .{@tagName(val)}),
+                    .nonTerminal => |val| print("{s}", .{@tagName(val)}),
                 }
             }
         };

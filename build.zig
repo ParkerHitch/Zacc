@@ -14,7 +14,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const mod = b.addModule("compilerLib", .{ .optimize = optimize, .target = target, .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "lib/specification.zig" } } });
+    const mod = b.addModule("compilerLib", .{ .optimize = optimize, .target = target, .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "lib/zacc.zig" } } });
     exe.root_module.addImport("compilerLib", mod);
 
     const verboseParsing = b.option(bool, "vparsing", "Print All Parsing Actions") orelse false;
