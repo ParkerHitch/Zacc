@@ -36,9 +36,6 @@ pub fn Compiler(Specification: type) type {
 }
 
 test "Unit Tests" {
+    std.testing.refAllDecls(@This());
     // TODO: Get unit tests back in all the files in src
-}
-
-test "Integration Tests" {
-    _ = @import("tests/zaccIntegrationTests.zig");
 }

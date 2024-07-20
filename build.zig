@@ -15,15 +15,24 @@ pub fn build(b: *std.Build) void {
 
     zaccMod.addOptions("config", options);
 
-    const zacc_tests_exe = b.addTest(.{ .name = "zacctest", .root_source_file = b.path("zacc.zig"), .target = target, .optimize = optimize });
+    const zacc_unit_tests_exe = b.addTest(.{ .name = "zacc unit test", .root_source_file = b.path("zacc.zig"), .target = target, .optimize = optimize });
+    const zacc_integration_tests_exe = b.addTest(.{ .name = "zacc integration test", .root_source_file = b.path("tests/zaccIntegrationTests.zig"), .target = target, .optimize = optimize });
 
-    zacc_tests_exe.root_module.addOptions("config", options);
-    b.installArtifact(zacc_tests_exe);
+    zacc_unit_tests_exe.root_module.addOptions("config", options);
+    zacc_integration_tests_exe.root_module.addOptions("config", options);
+    zacc_integration_tests_exe.root_module.addImport("zacc", zaccMod);
+    b.installArtifact(zacc_unit_tests_exe);
+    b.installArtifact(zacc_integration_tests_exe);
 
-    const run_tests_cmd = b.addRunArtifact(zacc_tests_exe);
-    run_tests_cmd.has_side_effects = true;
-    run_tests_cmd.step.dependOn(b.getInstallStep());
+    const run_unit_test_cmd = b.addRunArtifact(zacc_unit_tests_exe);
+    run_unit_test_cmd.has_side_effects = true;
+    run_unit_test_cmd.step.dependOn(b.getInstallStep());
+
+    const run_integration_tests_cmd = b.addRunArtifact(zacc_integration_tests_exe);
+    run_integration_tests_cmd.has_side_effects = true;
+    run_integration_tests_cmd.step.dependOn(b.getInstallStep());
 
     const test_step = b.step("test", "Run library tests");
-    test_step.dependOn(&run_tests_cmd.step);
+    test_step.dependOn(&run_unit_test_cmd.step);
+    test_step.dependOn(&run_integration_tests_cmd.step);
 }

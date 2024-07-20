@@ -1,5 +1,5 @@
 const std = @import("std");
-const compilerGenerator = @import("../../../zacc.zig");
+const compilerGenerator = @import("zacc");
 const specificationGenerator = compilerGenerator.specificationGenerator;
 const print = @import("std").debug.print;
 
