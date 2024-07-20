@@ -3,3 +3,5 @@ zig-out
 /src/testing.zig
 /src/utils.zig
 .zig-cache
+.DS_Store
+

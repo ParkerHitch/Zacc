@@ -1,10 +1,17 @@
+
+print(1969);
+
 3.14 -> PI;
 1 -> r1;
+
 r2 <- r1 + 4;
 r3 <- r2 + 1;
+
 average_radius <- (r1+r2+r3)/3;
+
 avgDiam <- average_radius * 2;
 avgCircum <- avgDiam * PI;
+
 print(PI);
 print(r1);
 print(r2);

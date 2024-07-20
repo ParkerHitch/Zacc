@@ -97,6 +97,12 @@ fn Specification(comptime Token_: type, comptime SemanticDataType_: type, compti
                     }});
                 }
             }
+
+            pub fn eql(self: @This(), other: @This()) bool {
+                return self.LHS == other.LHS and
+                    std.mem.eql(Symbol, self.RHS, other.RHS) and
+                    self.semanticAction == other.semanticAction;
+            }
         };
 
         pub const grammar: []const Production = createGrammar(Production, InputProduction, inputGrammar);
@@ -335,10 +341,11 @@ test "Create Non-Terminal Enum" {
         fieldNames[i] = enumField.name;
     };
 
-    print("Generated enum:\n", .{});
-    for (fieldNames) |enumField| {
-        print("    {s}\n", .{enumField});
-    }
+    // const correctEnum = enum { A, B, D };
+    //     // print("Generated enum:\n", .{});
+    // for (fieldNames) |enumField| {
+    //     // print("    {s}\n", .{enumField});
+    // }
 }
 
 test "type equality" {
@@ -352,9 +359,10 @@ test "type equality" {
     const a: t1 = .{ .ABC = 2, .DEF = 4 };
 
     const b: t2 = a;
+    _ = b;
 
-    print("{}\n", .{t1 == t2});
-    print("{}\n", .{b});
+    // print("{}\n", .{t1 == t2});
+    // print("{}\n", .{b});
 }
 
 test "production generation" {
@@ -379,9 +387,12 @@ test "production generation" {
     const t_Production = t_Token.Production(void);
     const fakeGrammar = [_]t_Production{ .{ .rule = "A -> B ID D", .semanticAction = undefined }, .{ .rule = "B -> A", .semanticAction = undefined }, .{ .rule = "A -> NUM", .semanticAction = undefined }, .{ .rule = "D ->", .semanticAction = undefined } };
     const t_Specification = t_Production.CreateSpecification(&fakeGrammar);
+    _ = t_Specification;
 
-    for (t_Specification.grammar) |prod| {
-        prod.debugPrint();
-        print("\n", .{});
-    }
+    // std.debug.assert(t_Specification.grammar[3].eql(t_Specification.Production{ .LHS = .D, .RHS = &.{}, .semanticAction = undefined }));
+
+    // for (t_Specification.grammar) |prod| {
+    //     prod.debugPrint();
+    //     print("\n", .{});
+    // }
 }

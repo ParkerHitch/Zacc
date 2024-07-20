@@ -1,4 +1,3 @@
-const spec = @import("../lang/specification.zig");
 const std = @import("std");
 const RegexParser = @import("regexParser.zig");
 const Allocator = std.mem.Allocator;
@@ -6,6 +5,9 @@ const File = std.fs.File;
 const FileReader = File.Reader;
 const StringHashMap = std.hash_map.StringHashMap(void);
 const print = std.debug.print;
+
+const config = @import("config");
+const verboseLexing = config.verboseLexing;
 
 pub fn Lexer(comptime Specification: type) type {
     const TokenKind: type = Specification.TokenKind;
@@ -18,7 +20,7 @@ pub fn Lexer(comptime Specification: type) type {
     const TokenList = std.ArrayList(Token);
 
     return struct {
-        pub fn lexFile(reader: *WholeFileBufferReader, allocator: Allocator, comptime verboseLexing: bool) ![]Token {
+        pub fn lexFile(reader: *WholeFileBufferReader, allocator: Allocator) ![]Token {
             var outArr: TokenList = TokenList.init(allocator);
             defer outArr.deinit();
 

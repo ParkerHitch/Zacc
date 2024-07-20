@@ -4,6 +4,9 @@ const Allocator = std.mem.Allocator;
 const lexer = @import("lexer.zig");
 const print = std.debug.print;
 
+const config = @import("config");
+const verboseParsing = config.verboseParsing;
+
 pub fn Parser(comptime Specification: type) type {
     const TokenKind = Specification.TokenKind;
     const NonTerminalSymbolKind = Specification.NonTerminalSymbolKind;
@@ -52,7 +55,7 @@ pub fn Parser(comptime Specification: type) type {
     return struct {
         pub const ParseError = error{ UNEXPECTED_TOKEN, INCOMPLETE_INPUT };
 
-        pub fn parseStream(input: []Token, allocator: Allocator, comptime verboseParsing: bool) !SemanticDataType {
+        pub fn parseStream(input: []Token, allocator: Allocator) !SemanticDataType {
             var stack = try ParseStack.initCapacity(allocator, 20);
             defer stack.deinit();
 

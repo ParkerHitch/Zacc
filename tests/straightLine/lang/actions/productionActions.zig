@@ -7,7 +7,7 @@ const fWriter = std.fs.File.Writer;
 
 var outw: fWriter = undefined;
 
-pub fn initStdout(writer: fWriter) void {
+pub fn initOutWriter(writer: fWriter) void {
     outw = writer;
 }
 

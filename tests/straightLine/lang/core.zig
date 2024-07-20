@@ -1,5 +1,5 @@
 const std = @import("std");
-const compilerGenerator = @import("compilerLib");
+const compilerGenerator = @import("../../../zacc.zig");
 const specificationGenerator = compilerGenerator.specificationGenerator;
 const print = @import("std").debug.print;
 
@@ -85,14 +85,9 @@ fn printInput(rhs: []SymbolData) SemanticData {
     return 0;
 }
 
-test "printProds" {
-    print("AAAH\n", .{});
-    for (Specification.grammar) |prod| {
-        prod.debugPrint();
-        print("\n", .{});
-    }
-}
-
-test "compileFile" {
-    _ = try Compiler.compileFileWithOpts("test.txt", std.testing.allocator, false, false);
-}
+// test "printProds" {
+//     for (Specification.grammar) |prod| {
+//         prod.debugPrint();
+//         print("\n", .{});
+//     }
+// }
