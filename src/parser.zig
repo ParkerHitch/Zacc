@@ -145,7 +145,7 @@ pub fn Parser(comptime Specification: type) type {
         }
 
         const ParseTable = makeLalrTable: {
-            @setEvalBranchQuota(1000000);
+            @setEvalBranchQuota(100000000);
             const blankRow = [1]ParseAction{.{ .ERROR = {} }} ** numSymbols;
             var out: []TableRow = &.{};
 
@@ -278,9 +278,10 @@ pub fn Parser(comptime Specification: type) type {
                         row.*[transInd] = .{ .SHIFT = dest };
                     }
                 },
-                .REDUCE => |_| {
+                .REDUCE => |prodPtr| {
                     const errorToken: TokenKind = @enumFromInt(transInd);
-                    @compileError("Shift/Reduce conflict found when generating LALR parser on token: " ++ @tagName(errorToken));
+                    @compileError(std.fmt.comptimePrint("Shift/Reduce conflict found on token: {s}. Reduction uses rule: {s}", .{ @tagName(errorToken), prodPtr.makeComptimeStr() }));
+                    // @compileError("Shift/Reduce conflict found when generating LALR parser on token: " ++ @tagName(errorToken));
                 },
                 .SHIFT, .ACCEPT => unreachable,
             }
@@ -561,6 +562,7 @@ pub fn Parser(comptime Specification: type) type {
         }
 
         const first: [numSymbols]TerminalSymbolSet = calcFirsts: {
+            @setEvalBranchQuota(1000000);
             var out: [numSymbols]TerminalSymbolSet = .{TerminalSymbolSet.initEmpty()} ** numSymbols;
             // Set the first set of all terminal symbols to be equal to that symbol.
             for (0..numTerminalSymbols) |i| {

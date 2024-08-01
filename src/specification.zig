@@ -84,6 +84,8 @@ fn Specification(comptime Token_: type, comptime SemanticDataType_: type, compti
         pub const SemanticDataType = SemanticDataType_;
 
         pub const Production = struct {
+            const cprint = std.fmt.comptimePrint;
+
             LHS: NonTerminalSymbolKind,
             RHS: []const Symbol,
             semanticAction: *const fn ([]SymbolData) SemanticDataType,
@@ -96,6 +98,17 @@ fn Specification(comptime Token_: type, comptime SemanticDataType_: type, compti
                         .terminal => |termSymb| @tagName(termSymb),
                     }});
                 }
+            }
+
+            pub fn makeComptimeStr(self: @This()) []const u8 {
+                var out: []const u8 = cprint("{s} ->", .{@tagName(self.LHS)});
+                for (self.RHS) |symb| {
+                    out = out ++ cprint(" {s}", .{switch (symb) {
+                        .nonTerminal => |nonTermSymb| @tagName(nonTermSymb),
+                        .terminal => |termSymb| @tagName(termSymb),
+                    }});
+                }
+                return out;
             }
 
             pub fn eql(self: @This(), other: @This()) bool {
@@ -111,7 +124,7 @@ fn Specification(comptime Token_: type, comptime SemanticDataType_: type, compti
 
 /// Creates the grammar in the proper type out of strings
 fn createGrammar(comptime Production: type, comptime InputProduction: type, comptime inputGrammar: []const InputProduction) []const Production {
-    @setEvalBranchQuota(32000);
+    @setEvalBranchQuota(10000000);
     var productions: []const Production = &.{};
     const Symbol: type = @typeInfo(std.meta.FieldType(Production, .RHS)).Pointer.child;
     // const TokenKind: type = std.meta.FieldType(Symbol, .terminal);
@@ -246,6 +259,7 @@ fn validateNoNamingConflicts(comptime TokenKind: type, comptime NonTerminalSymbo
 /// Also checks and ensures that every rule has exactly one non terminal on the LHS,
 ///    and that all rules have an arrow.
 fn CreateNonTerminalSymbolEnum(comptime InputProduction: type, comptime inputGrammar: []const InputProduction) type {
+    @setEvalBranchQuota(100000);
     var nonTermNames: [inputGrammar.len][:0]const u8 = undefined;
     var nonTermNum: usize = 0;
 
