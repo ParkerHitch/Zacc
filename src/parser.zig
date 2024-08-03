@@ -4,9 +4,6 @@ const Allocator = std.mem.Allocator;
 const lexer = @import("lexer.zig");
 const print = std.debug.print;
 
-const config = @import("config");
-const verboseParsing = config.verboseParsing;
-
 pub fn Parser(comptime Specification: type) type {
     const TokenKind = Specification.TokenKind;
     const NonTerminalSymbolKind = Specification.NonTerminalSymbolKind;
@@ -17,8 +14,9 @@ pub fn Parser(comptime Specification: type) type {
     const Production = Specification.Production;
     const grammar: []const Production = Specification.grammar;
 
-    // Minus one since notoken.
-    const numTerminalSymbols = @typeInfo(TokenKind).Enum.fields.len - 1;
+    const verboseParsing = Specification.options.verboseParsing;
+
+    const numTerminalSymbols = @typeInfo(TokenKind).Enum.fields.len;
     const numNonterminalSymbols = @typeInfo(NonTerminalSymbolKind).Enum.fields.len;
     const numSymbols = numTerminalSymbols + numNonterminalSymbols;
 

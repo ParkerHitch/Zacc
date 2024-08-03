@@ -6,9 +6,6 @@ const FileReader = File.Reader;
 const StringHashMap = std.hash_map.StringHashMap(void);
 const print = std.debug.print;
 
-const config = @import("config");
-const verboseLexing = config.verboseLexing;
-
 pub fn Lexer(comptime Specification: type) type {
     const TokenKind: type = Specification.TokenKind;
     const Token: type = Specification.Token;
@@ -18,6 +15,8 @@ pub fn Lexer(comptime Specification: type) type {
 
     const LexingError = error{ UNEXPECTED_WHITESPACE, INVALID_SYNTAX };
     const TokenList = std.ArrayList(Token);
+
+    const verboseLexing = Specification.options.verboseLexing;
 
     return struct {
         pub fn lexFile(reader: *WholeFileBufferReader, allocator: Allocator) ![]Token {
@@ -103,6 +102,14 @@ pub fn Lexer(comptime Specification: type) type {
 
             return outSlice;
         }
+
+        fn isWhitespace(char: u8) bool {
+            for (Specification.options.whitespaceCharacters) |wChar| {
+                if (char == wChar)
+                    return true;
+            }
+            return false;
+        }
     };
 }
 
@@ -146,10 +153,6 @@ pub const WholeFileBufferReader = struct {
         self.location = newLoc;
     }
 };
-
-fn isWhitespace(char: u8) bool {
-    return char == ' ' or char == '\n' or char == '\t';
-}
 
 // test "testLex" {
 // const allocator = std.testing.allocator;

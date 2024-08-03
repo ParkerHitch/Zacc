@@ -103,9 +103,9 @@ pub fn ParsedRegex(comptime Specification: type) type {
             for (outDfa.nodes) |dfaNode| {
                 var nfaNodeIter = dfaNode.data.iterator(.{});
                 while (nfaNodeIter.next()) |nfaNode| {
-                    if (specNodalNFA.nodes[nfaNode].acceptsToken != .NOTOKEN) {
+                    if (specNodalNFA.nodes[nfaNode].acceptsToken) |at| {
                         outDfa.acceptingNodes = (outDfa.acceptingNodes orelse unreachable) ++ .{dfaNode.id};
-                        outDfa.acceptingTokens = (outDfa.acceptingTokens orelse unreachable) ++ .{specNodalNFA.nodes[nfaNode].acceptsToken};
+                        outDfa.acceptingTokens = (outDfa.acceptingTokens orelse unreachable) ++ .{at};
                     }
                 }
             }
@@ -151,9 +151,9 @@ pub fn ParsedRegex(comptime Specification: type) type {
                         .acceptsToken = node.acceptsToken,
                     };
                     std.debug.assert(newNode.id == id);
-                    if (newNode.acceptsToken != TokenKind.NOTOKEN) {
-                        mergedNFA.acceptingNodes = (mergedNFA.acceptingNodes orelse unreachable) ++ .{id};
-                        mergedNFA.acceptingTokens = (mergedNFA.acceptingTokens orelse unreachable) ++ .{newNode.acceptsToken};
+                    if (newNode.acceptsToken) |at| {
+                        mergedNFA.acceptingNodes = (mergedNFA.acceptingNodes.?) ++ .{id};
+                        mergedNFA.acceptingTokens = (mergedNFA.acceptingTokens.?) ++ .{at};
                     }
 
                     for (node.transitionKeys, node.transitionDests) |k, d| {
@@ -188,9 +188,9 @@ pub fn ParsedRegex(comptime Specification: type) type {
 
         fn createForContext(regex: []const u8, baseID: usize, parenLvl: u8, arr: *BoundedArr256) InvalidRegexError!StartAndEnd {
             var currentID = baseID;
-            const baseNode = try NfaNode.addNewToArr(currentID, TokenKind.NOTOKEN, arr);
+            const baseNode = try NfaNode.addNewToArr(currentID, null, arr);
             currentID += 1;
-            var currentNode = try NfaNode.addNewToArr(currentID, TokenKind.NOTOKEN, arr);
+            var currentNode = try NfaNode.addNewToArr(currentID, null, arr);
             currentID += 1;
             baseNode.addExit(0, currentNode.id);
             var previousNode: *NfaNode = baseNode;
@@ -222,14 +222,14 @@ pub fn ParsedRegex(comptime Specification: type) type {
                         baseNode.addExit(0, rhs.startNode.id);
                         currentID = rhs.endNode.id + 1;
                         i += rhs.charCount + 1;
-                        const mergedEnd = try NfaNode.addNewToArr(currentID, TokenKind.NOTOKEN, arr);
+                        const mergedEnd = try NfaNode.addNewToArr(currentID, null, arr);
                         currentID += 1;
                         currentNode.addExit(0, mergedEnd.id);
                         rhs.endNode.addExit(0, mergedEnd.id);
                         currentNode = mergedEnd;
                         break;
                     } else if (c == '*') {
-                        const newBlank = try NfaNode.addNewToArr(currentID, TokenKind.NOTOKEN, arr);
+                        const newBlank = try NfaNode.addNewToArr(currentID, null, arr);
                         currentID += 1;
                         previousNode.addExit(0, currentNode.id);
                         currentNode.addExit(0, previousNode.id);
@@ -243,7 +243,7 @@ pub fn ParsedRegex(comptime Specification: type) type {
                         currentNode.addExit(0, previousNode.id);
                         continue;
                     } else if (c == '[') {
-                        const newNode = try NfaNode.addNewToArr(currentID, TokenKind.NOTOKEN, arr);
+                        const newNode = try NfaNode.addNewToArr(currentID, null, arr);
                         currentID += 1;
                         const charJump = try currentNode.addMacroExits(regex[i + 1 ..], newNode.id);
                         previousNode = currentNode;
@@ -252,7 +252,7 @@ pub fn ParsedRegex(comptime Specification: type) type {
                         continue;
                     }
                 }
-                const newNode = try NfaNode.addNewToArr(currentID, TokenKind.NOTOKEN, arr);
+                const newNode = try NfaNode.addNewToArr(currentID, null, arr);
                 currentID += 1;
                 currentNode.addExit(c, newNode.id);
                 previousNode = currentNode;
@@ -276,11 +276,11 @@ pub fn ParsedRegex(comptime Specification: type) type {
             return struct {
                 id: usize,
                 data: dataType = defaultData,
-                acceptsToken: TokenKind = .NOTOKEN,
+                acceptsToken: ?TokenKind = null,
                 transitionKeys: []const u8 = &[0]u8{},
                 transitionDests: []const usize = &[0]usize{},
 
-                pub fn addNewToArr(id: usize, acceptToken: TokenKind, arr: *BoundedArr256) !*@This() {
+                pub fn addNewToArr(id: usize, acceptToken: ?TokenKind, arr: *BoundedArr256) !*@This() {
                     arr.append(@This(){
                         .id = id,
                         .acceptsToken = acceptToken,
@@ -308,7 +308,7 @@ pub fn ParsedRegex(comptime Specification: type) type {
 
                 pub fn epsillonClosure(self: *const @This(), availibleNodes: []const @This(), existingClosure: ?DfaNodeSet) DfaNodeSet {
                     // Helps with getting rid of random single blank nodes when converting to dfa.
-                    if (self.transitionKeys.len == 1 and self.transitionKeys[0] == 0 and self.acceptsToken == .NOTOKEN) {
+                    if (self.transitionKeys.len == 1 and self.transitionKeys[0] == 0 and self.acceptsToken != null) {
                         return availibleNodes[self.transitionDests[0]].epsillonClosure(availibleNodes, existingClosure);
                     }
                     var newClosure = existingClosure orelse DfaNodeSet.initEmpty();
@@ -350,8 +350,8 @@ pub fn ParsedRegex(comptime Specification: type) type {
                                 print("}}", .{});
                             }
                         }
-                        if (node.acceptsToken != .NOTOKEN) {
-                            print(" - ACCEPTS: {}\n", .{node.acceptsToken});
+                        if (node.acceptsToken) |at| {
+                            print(" - ACCEPTS: {}\n", .{at});
                         } else {
                             print("\n", .{});
                         }

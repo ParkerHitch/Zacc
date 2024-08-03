@@ -23,20 +23,51 @@ pub fn Token(comptime TokenKind_: type) type {
                 rule: [:0]const u8,
                 semanticAction: *const fn ([]SymbolData) SemanticDataType,
 
-                pub fn CreateSpecification(comptime grammar: []const Production_) type {
-                    return Specification(Token_, SemanticDataType, SymbolData, Production_, grammar);
+                pub fn CreateSpecification(comptime grammar: []const Production_, comptime options: CompilationOptions) type {
+                    return Specification(Token_, SemanticDataType, SymbolData, Production_, grammar, options);
                 }
             };
         }
     };
 }
 
+pub const CompilationOptions = struct {
+    /// Enables the verbose lexing debugging feature.
+    /// Prints each character and matched tokens to stderr.
+    verboseLexing: bool = false,
+    /// Enables the verbose parsing debugging feature.
+    /// Prints each input token and all shift/reduce actions taken.
+    verboseParsing: bool = false,
+    /// A string that denotes the start of a line comment.
+    lineCommentStart: ?[:0]const u8 = null,
+    /// A string that denotes the start of a block comment.
+    blockCommentStart: ?[:0]const u8 = null,
+    /// A string that denotes the end of a block comment.
+    blockCommentEnd: ?[:0]const u8 = null,
+    /// Can block comments be nested?
+    supportNestedBlockComments: bool = false,
+    /// Characters that the compiler ignores.
+    /// These characters cannot be used in tokens or comment delimiters.
+    /// Code surrounded by these characters must be a sequence of valid tokens.
+    whitespaceCharacters: []const u8 = &.{ ' ', '\n', '\t', '\r' },
+};
+
 // Return the specification type to be used in generating the compiler.
-fn Specification(comptime Token_: type, comptime SemanticDataType_: type, comptime SymbolData_: type, comptime InputProduction: type, comptime inputGrammar: []const InputProduction) type {
-    const NonTerminalSymbolKind_: type = CreateNonTerminalSymbolEnum(InputProduction, inputGrammar);
+fn Specification(
+    comptime Token_: type,
+    comptime SemanticDataType_: type,
+    comptime SymbolData_: type,
+    comptime InputProduction: type,
+    comptime inGrammar: []const InputProduction,
+    comptime inOptions: CompilationOptions,
+) type {
     @setEvalBranchQuota(100000);
+
+    const NonTerminalSymbolKind_: type = CreateNonTerminalSymbolEnum(InputProduction, inGrammar);
     return struct {
         const Specification = @This();
+
+        pub const options: CompilationOptions = inOptions;
 
         pub const TokenKind = std.meta.FieldType(Token_, .kind);
         pub const Token = Token_;
@@ -118,7 +149,7 @@ fn Specification(comptime Token_: type, comptime SemanticDataType_: type, compti
             }
         };
 
-        pub const grammar: []const Production = createGrammar(Production, InputProduction, inputGrammar);
+        pub const grammar: []const Production = createGrammar(Production, InputProduction, inGrammar);
     };
 }
 
@@ -216,10 +247,6 @@ fn validateTokenKind(comptime TokenKind: type) void {
         @compileError("The first member of the TokenKind enum must have name 'EOF', for use inside the compiler");
     }
 
-    if (!std.mem.eql(u8, inFields[inFields.len - 1].name, "NOTOKEN")) {
-        @compileError("The last member of the TokenKind enum must have name 'NOTOKEN', for use inside the compiler");
-    }
-
     for (inFields, 0..) |field, fieldInd| {
         if (field.value != fieldInd) {
             @compileError("Bruh don't change the enum backing value for TokenKind");
@@ -227,8 +254,7 @@ fn validateTokenKind(comptime TokenKind: type) void {
     }
 
     const getRegexErr = "The TokenKind enum must have a 'pub fn getRegex(TokenKind) [:0]const u8' declared.\n" ++
-        "This function should maps each type of token found in an input file to a regex describing that token\n" ++
-        "EOF and NOTOKEN can simply return an empty string.";
+        "This function should maps each type of token found in an input file to a regex describing that token\n";
     if (!std.meta.hasFn(TokenKind, "getRegex")) {
         @compileError(getRegexErr);
     }
@@ -386,7 +412,6 @@ test "production generation" {
         EOF,
         ID,
         NUM,
-        NOTOKEN,
 
         pub fn getRegex(tok: t_TokenKind) [:0]const u8 {
             return switch (tok) {
@@ -400,7 +425,7 @@ test "production generation" {
     const t_Token = Token(t_TokenKind);
     const t_Production = t_Token.Production(void);
     const fakeGrammar = [_]t_Production{ .{ .rule = "A -> B ID D", .semanticAction = undefined }, .{ .rule = "B -> A", .semanticAction = undefined }, .{ .rule = "A -> NUM", .semanticAction = undefined }, .{ .rule = "D ->", .semanticAction = undefined } };
-    const t_Specification = t_Production.CreateSpecification(&fakeGrammar);
+    const t_Specification = t_Production.CreateSpecification(&fakeGrammar, .{});
     _ = t_Specification;
 
     // std.debug.assert(t_Specification.grammar[3].eql(t_Specification.Production{ .LHS = .D, .RHS = &.{}, .semanticAction = undefined }));

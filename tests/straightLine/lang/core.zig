@@ -17,7 +17,6 @@ const TokenKind = enum {
     L_PAREN,
     R_PAREN,
     SEMICOLON,
-    NOTOKEN,
 
     pub fn getRegex(self: TokenKind) [:0]const u8 {
         return switch (self) {
@@ -34,7 +33,6 @@ const TokenKind = enum {
             .L_PAREN => "\\(",
             .R_PAREN => "\\)",
             .SEMICOLON => ";",
-            .NOTOKEN => "",
         };
     }
 };
@@ -70,7 +68,7 @@ const Production = Token.Production(SemanticData);
 
 pub const SymbolData: type = Production.SymbolData;
 
-pub const Specification = Production.CreateSpecification(grammar);
+pub const Specification = Production.CreateSpecification(grammar, .{});
 
 pub const Compiler = compilerGenerator.Compiler(Specification);
 
