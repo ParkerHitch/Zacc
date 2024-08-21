@@ -66,6 +66,7 @@ const Token = specificationGenerator.Token(TokenKind);
 
 const Production = Token.Production(SemanticData);
 
+// Public so that it can be used when defining semantic actions in the other files.
 pub const SymbolData: type = Production.SymbolData;
 
 pub const Specification = Production.CreateSpecification(grammar, .{});

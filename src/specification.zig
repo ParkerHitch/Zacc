@@ -38,12 +38,6 @@ pub const CompilationOptions = struct {
     /// Enables the verbose parsing debugging feature.
     /// Prints each input token and all shift/reduce actions taken.
     verboseParsing: bool = false,
-    /// A string that denotes the start of a line comment.
-    lineCommentStart: ?[:0]const u8 = null,
-    /// A string that denotes the start of a block comment.
-    blockCommentStart: ?[:0]const u8 = null,
-    /// A string that denotes the end of a block comment.
-    blockCommentEnd: ?[:0]const u8 = null,
     /// Can block comments be nested?
     supportNestedBlockComments: bool = false,
     /// Characters that the compiler ignores.
@@ -51,6 +45,9 @@ pub const CompilationOptions = struct {
     /// Code surrounded by these characters must be a sequence of valid tokens.
     whitespaceCharacters: []const u8 = &.{ ' ', '\n', '\t', '\r' },
 };
+
+/// Information about the lauguage discovered when creating the compiler.specspecspec
+pub const LanguageInfo = struct {};
 
 // Return the specification type to be used in generating the compiler.
 fn Specification(
