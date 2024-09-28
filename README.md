@@ -31,7 +31,11 @@ The Token struct will contain both the enum and relevant information from the so
 Things to know about the token kind enum:
 - It must have a function whose signature is **exactly**: `pub fn getRegex(self: YOUR_ENUM_TYPE_HERE) [:0]const u8`. This function should return a regex specifying what types of strings match to the enum passed into it.
 - The first member of this enum must be named `EOF`. Standing for "end of file", this is a token that all languages must contain. It is required to be used at least once in a production where the left side nonterminal is a valid program/file. The regex returned for this token will be ignored.
-- The enum member names `LINE_COMMENT_START`, `BLOCK_COMMENT_START`, and `BLOCK_COMMENT_END` are reserved keywords. They are required to use Zacc's builtin support for comments, and cannot be used in any productions. Regexes specified (in the getRegex function) for these members are used to determine when a comment starts or ends.
+- In addition to `EOF`, the enum member names `LINE_COMMENT_START` and `BLOCK_COMMENT_START` are reserved keywords. They are required to use Zacc's builtin support for comments, and cannot be used in any productions. Regexes specified (in the getRegex function) for these members are used to determine when a comment starts.
+
+> **If your enum contains BLOCK_COMMENT_START, you must set blockCommentEnd in the CompilationOptions struct, and vice-versa.** 
+> I know this is clunky. Sorry.
+
 - **Order matters in this enum!**
 Members that come before other members (i.e. members with a lower backing int) will be prioritized when two or more regexes match the same token. This means that you should place your keywords, for example, before your identifier token, so that 'if' does not get lexed into an identifier.
 
@@ -135,7 +139,7 @@ Notes on making rules:
 - Rules should be of the form "NONTERMINAL -> SYMB_A SYMB_B ..."
 - To use Tokens in your rules, use the enum member name. So, if your enum had members "IDENTIFIER" and "PLUS
  you could make a rule like "ADD -> IDENTIFIER PLUS IDENTIFIER"
-- The first rule(s) you create must be of the form "A -> B C D ... Y Z EOF". Reducing by this/these rule(s) signals the complete parsing of a file, and will cause the parser to accept the input and stop parsing. The compiler will return the return value of the semantic action(s) associated with this/these rule(s) upon successfully compiling a file.
+- The first rule you create must be of the form "A -> B ... Z **EOF**". Reducing by this rule signals the complete parsing of a file, and will cause the parser to accept the input and stop parsing. The compiler will return the return value of the semantic action associated with this rule upon successfully compiling a file.
 
 <details>
 <summary>Example</summary>

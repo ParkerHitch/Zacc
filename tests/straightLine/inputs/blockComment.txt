@@ -1,0 +1,14 @@
+
+// Very important text here
+print(1234.5678);
+
+
+/* And some much less important stuff here:
+
+a0 <- 1;
+
+blahblahblah
+lorem ipsem
+// woooooo * sjdlf */
+
+print(45.67);

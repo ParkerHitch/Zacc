@@ -10,7 +10,16 @@ pub fn Lexer(comptime Specification: type) type {
     const TokenKind: type = Specification.TokenKind;
     const Token: type = Specification.Token;
 
-    const ParsedRegex = RegexParser.ParsedRegex(Specification);
+    const BlockEndEnum = if (Specification.langInfo.hasBlockComments) enum {
+        BLOCK_COMMENT_END,
+        pub fn getRegex(_: @This()) []const u8 {
+            return Specification.options.blockCommentEnd orelse unreachable;
+        }
+    } else void;
+    const BlockEndRegex = if (Specification.langInfo.hasBlockComments) RegexParser.ParsedRegex(BlockEndEnum) else void;
+    const blockEndAutomata = if (Specification.langInfo.hasBlockComments) BlockEndRegex.specNodalDFA else undefined;
+
+    const ParsedRegex = RegexParser.ParsedRegex(TokenKind);
     const automata = ParsedRegex.specNodalDFA;
 
     const LexingError = error{ UNEXPECTED_WHITESPACE, INVALID_SYNTAX };
@@ -28,11 +37,39 @@ pub fn Lexer(comptime Specification: type) type {
             var firstCharLoc: usize = 0;
             var lastMatchLoc: ?usize = null;
             var lastMatchTok: ?TokenKind = null;
+            var in_line_comment: bool = false;
+            var in_block_comment: bool = false;
+            var blockEndAutomataState: usize = 0;
 
             while (reader.getNextChar()) |byte| : (charLoc += 1) {
                 if (byte == 0) {
                     try outArr.append(Token{ .kind = .EOF, .src = undefined });
                     break;
+                }
+
+                if ((comptime Specification.langInfo.hasLineComments) and in_line_comment) {
+                    if (byte == '\n') {
+                        in_line_comment = false;
+                        firstCharLoc = charLoc + 1;
+                        automataState = 0;
+                        lastMatchLoc = null;
+                        lastMatchTok = null;
+                    }
+                    continue;
+                } else if ((comptime Specification.langInfo.hasBlockComments) and in_block_comment) {
+                    if (blockEndAutomata.nextState(blockEndAutomataState, byte)) |newState| {
+                        blockEndAutomataState = newState;
+                        if (blockEndAutomata.getAccepting(newState)) |_| {
+                            in_block_comment = false;
+                            firstCharLoc = charLoc + 1;
+                            automataState = 0;
+                            lastMatchLoc = null;
+                            lastMatchTok = null;
+                        }
+                    } else {
+                        blockEndAutomataState = 0;
+                    }
+                    continue;
                 }
 
                 if (comptime verboseLexing)
@@ -56,6 +93,8 @@ pub fn Lexer(comptime Specification: type) type {
 
                         automataState = 0;
                         firstCharLoc = charLoc + 1;
+                        lastMatchLoc = null;
+                        lastMatchTok = null;
                     } else {
                         return LexingError.UNEXPECTED_WHITESPACE;
                     }
@@ -63,6 +102,11 @@ pub fn Lexer(comptime Specification: type) type {
                     if (automata.nextState(automataState, byte)) |newState| {
                         automataState = newState;
                         if (automata.getAccepting(automataState)) |tok| {
+                            if ((comptime Specification.langInfo.hasLineComments) and tok == .LINE_COMMENT_START) {
+                                in_line_comment = true;
+                            } else if ((comptime Specification.langInfo.hasBlockComments) and tok == .BLOCK_COMMENT_START) {
+                                in_block_comment = true;
+                            }
                             lastMatchLoc = charLoc;
                             lastMatchTok = tok;
                         }

@@ -17,8 +17,10 @@ const TokenKind = enum {
     L_PAREN,
     R_PAREN,
     SEMICOLON,
+    LINE_COMMENT_START,
+    BLOCK_COMMENT_START,
 
-    pub fn getRegex(self: TokenKind) [:0]const u8 {
+    pub fn getRegex(self: TokenKind) []const u8 {
         return switch (self) {
             .EOF => "",
             .PRINT => "print",
@@ -33,6 +35,8 @@ const TokenKind = enum {
             .L_PAREN => "\\(",
             .R_PAREN => "\\)",
             .SEMICOLON => ";",
+            .LINE_COMMENT_START => "//",
+            .BLOCK_COMMENT_START => "/\\*",
         };
     }
 };
@@ -69,7 +73,11 @@ const Production = Token.Production(SemanticData);
 // Public so that it can be used when defining semantic actions in the other files.
 pub const SymbolData: type = Production.SymbolData;
 
-pub const Specification = Production.CreateSpecification(grammar, .{});
+pub const Specification = Production.CreateSpecification(grammar, .{
+    .verboseLexing = false,
+    .verboseParsing = false,
+    .blockCommentEnd = "\\*/",
+});
 
 pub const Compiler = compilerGenerator.Compiler(Specification);
 

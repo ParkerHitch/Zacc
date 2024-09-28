@@ -1,0 +1,11 @@
+
+// Print out a funny number
+print(420);
+
+// Do some math
+a0 <- 1 + 2;
+a2 <- a0 * 2;
+
+// Print result
+print(a2*4);
+

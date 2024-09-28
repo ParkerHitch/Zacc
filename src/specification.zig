@@ -38,16 +38,25 @@ pub const CompilationOptions = struct {
     /// Enables the verbose parsing debugging feature.
     /// Prints each input token and all shift/reduce actions taken.
     verboseParsing: bool = false,
-    /// Can block comments be nested?
-    supportNestedBlockComments: bool = false,
+
+    // TODO: Add support for nesting block comments
+    // /// Can block comments be nested?
+    // supportNestedBlockComments: bool = false,
+
     /// Characters that the compiler ignores.
     /// These characters cannot be used in tokens or comment delimiters.
     /// Code surrounded by these characters must be a sequence of valid tokens.
     whitespaceCharacters: []const u8 = &.{ ' ', '\n', '\t', '\r' },
+    /// Regex that matches the end of a block comment.
+    /// This should not be null if and only if the TokenKind enum contains a BLOCK_COMMENT_START member.
+    blockCommentEnd: ?[]const u8 = null,
 };
 
-/// Information about the lauguage discovered when creating the compiler.specspecspec
-pub const LanguageInfo = struct {};
+/// Information about the lauguage discovered by Zacc when creating the compiler
+pub const LanguageInfo = struct {
+    hasLineComments: bool,
+    hasBlockComments: bool,
+};
 
 // Return the specification type to be used in generating the compiler.
 fn Specification(
@@ -147,6 +156,8 @@ fn Specification(
         };
 
         pub const grammar: []const Production = createGrammar(Production, InputProduction, inGrammar);
+
+        pub const langInfo: LanguageInfo = gatherLanguageInfo(TokenKind, inOptions);
     };
 }
 
@@ -227,6 +238,24 @@ fn createGrammar(comptime Production: type, comptime InputProduction: type, comp
         productions = productions ++ .{newProd};
     }
 
+    const lastSymb: Symbol = productions[0].RHS[productions[0].RHS.len - 1];
+    if (lastSymb != .terminal or lastSymb.terminal != .EOF) {
+        @compileError("Your first production must be of form: A -> B ... EOF");
+    }
+
+    for (productions, 0..) |newProd, i| {
+        for (newProd.RHS, 0..) |symb, j| {
+            if (symb != .terminal or symb.terminal != .EOF) {
+                continue;
+            }
+            // 1st EOF
+            if (i == 0 and j == newProd.RHS.len - 1) {
+                continue;
+            }
+            @compileError(std.fmt.comptimePrint("Error: EOF found in production: {s}. The EOF can only be used once, and must be the last token of the first production", .{newProd.makeComptimeStr}));
+        }
+    }
+
     return productions;
 }
 
@@ -276,6 +305,34 @@ fn validateNoNamingConflicts(comptime TokenKind: type, comptime NonTerminalSymbo
             }
         }
     }
+}
+
+fn gatherLanguageInfo(
+    comptime TokenKind: type,
+    userOptions: CompilationOptions,
+) LanguageInfo {
+    var out: LanguageInfo = .{ .hasLineComments = false, .hasBlockComments = false };
+
+    var blockStart: bool = false;
+    const fields = @typeInfo(TokenKind).@"enum".fields;
+    for (fields) |field| {
+        if (std.mem.eql(u8, "LINE_COMMENT_START", field.name)) {
+            out.hasLineComments = true;
+        }
+        if (std.mem.eql(u8, "BLOCK_COMMENT_START", field.name)) {
+            blockStart = true;
+        }
+    }
+
+    if (blockStart and userOptions.blockCommentEnd != null) {
+        out.hasBlockComments = true;
+    } else if (blockStart) {
+        @compileError("Found BLOCK_COMMENT_START in enum, but CompilationOptions did not contain a value for blockCommentEnd");
+    } else if (userOptions.blockCommentEnd) {
+        @compileError("CompilationOptions contained a value for blockCommentEnd, but BLOCK_COMMENT_START enum member not found");
+    }
+
+    return out;
 }
 
 /// Creates the NonTerminalSymbolKind enum
