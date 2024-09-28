@@ -154,7 +154,7 @@ fn Specification(
 fn createGrammar(comptime Production: type, comptime InputProduction: type, comptime inputGrammar: []const InputProduction) []const Production {
     @setEvalBranchQuota(10000000);
     var productions: []const Production = &.{};
-    const Symbol: type = @typeInfo(std.meta.FieldType(Production, .RHS)).Pointer.child;
+    const Symbol: type = @typeInfo(std.meta.FieldType(Production, .RHS)).pointer.child;
     // const TokenKind: type = std.meta.FieldType(Symbol, .terminal);
     const NonTerminalSymbolKind: type = std.meta.FieldType(Symbol, .nonTerminal);
 
@@ -234,11 +234,11 @@ fn createGrammar(comptime Production: type, comptime InputProduction: type, comp
 fn validateTokenKind(comptime TokenKind: type) void {
     const inTypeInfo: std.builtin.Type = @typeInfo(TokenKind);
 
-    if (inTypeInfo != .Enum) {
+    if (inTypeInfo != .@"enum") {
         @compileError("TokenKind must be an enum!");
     }
 
-    const inFields = inTypeInfo.Enum.fields;
+    const inFields = inTypeInfo.@"enum".fields;
 
     if (!std.mem.eql(u8, inFields[0].name, "EOF")) {
         @compileError("The first member of the TokenKind enum must have name 'EOF', for use inside the compiler");
@@ -259,7 +259,7 @@ fn validateTokenKind(comptime TokenKind: type) void {
     const getRegexType = @TypeOf(@field(TokenKind, "getRegex"));
 
     if (getRegexType != *const fn (TokenKind) [:0]const u8) {
-        if (@typeInfo(getRegexType).Fn.params[0].type orelse void == TokenKind) {
+        if (@typeInfo(getRegexType).@"fn".params[0].type orelse void == TokenKind) {
             return;
         }
         @compileError(std.fmt.comptimePrint("TokenKind.getRegex must be of type 'fn(TokenKind) [:0]const u8'. Got: {any}", .{getRegexType}));
@@ -355,7 +355,7 @@ fn CreateNonTerminalSymbolEnum(comptime InputProduction: type, comptime inputGra
         .is_exhaustive = true,
     };
 
-    return @Type(std.builtin.Type{ .Enum = enumInfo });
+    return @Type(std.builtin.Type{ .@"enum" = enumInfo });
 }
 pub fn addZ(comptime length: usize, value: []const u8) [length:0]u8 {
     var terminated_value: [length:0]u8 = undefined;
@@ -373,8 +373,8 @@ test "Create Non-Terminal Enum" {
 
     const NonTermType = comptime CreateNonTerminalSymbolEnum(fakeProd, &fakeGrammar);
 
-    comptime var fieldNames: [@typeInfo(NonTermType).Enum.fields.len][]const u8 = undefined;
-    comptime for (@typeInfo(NonTermType).Enum.fields, 0..) |enumField, i| {
+    comptime var fieldNames: [@typeInfo(NonTermType).@"enum".fields.len][]const u8 = undefined;
+    comptime for (@typeInfo(NonTermType).@"enum".fields, 0..) |enumField, i| {
         fieldNames[i] = enumField.name;
     };
 

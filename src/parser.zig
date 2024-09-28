@@ -16,8 +16,8 @@ pub fn Parser(comptime Specification: type) type {
 
     const verboseParsing = Specification.options.verboseParsing;
 
-    const numTerminalSymbols = @typeInfo(TokenKind).Enum.fields.len;
-    const numNonterminalSymbols = @typeInfo(NonTerminalSymbolKind).Enum.fields.len;
+    const numTerminalSymbols = @typeInfo(TokenKind).@"enum".fields.len;
+    const numNonterminalSymbols = @typeInfo(NonTerminalSymbolKind).@"enum".fields.len;
     const numSymbols = numTerminalSymbols + numNonterminalSymbols;
 
     const TerminalSymbolSet = std.bit_set.StaticBitSet(numTerminalSymbols);
@@ -64,10 +64,9 @@ pub fn Parser(comptime Specification: type) type {
 
             while (inputInd < input.len) {
                 const lookaheadToken = input[inputInd];
-                // TODO: lookaheadToken.kind
                 const lookaheadKind: TokenKind = lookaheadToken.kind;
                 const currentAction = ParseTable[currentParseState][@intFromEnum(lookaheadKind)];
-                // print("Stack: {any}\n", .{stack.items});
+
                 switch (currentAction) {
                     .ERROR => {
                         print("Unexpected token: {s} (token # {d})\n", .{ @tagName(lookaheadKind), inputInd });

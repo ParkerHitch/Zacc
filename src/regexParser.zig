@@ -2,9 +2,7 @@ const std = @import("std");
 const print = std.debug.print;
 const BitSet = std.bit_set.StaticBitSet;
 
-pub fn ParsedRegex(comptime Specification: type) type {
-    const TokenKind = Specification.TokenKind;
-
+pub fn ParsedRegex(comptime TokenKind: type) type {
     return struct {
         pub const InvalidRegexError = error{
             InvalidRegex,
@@ -128,7 +126,7 @@ pub fn ParsedRegex(comptime Specification: type) type {
                 const tt: TokenKind = @enumFromInt(e.value);
                 const regex = tt.getRegex();
                 tonkenNodalNFAs[i] = genNodalNFA(regex, tt) catch {
-                    @compileLog("INVALIDREGEX FOR: ", tt);
+                    @compileLog("INVALID REGEX FOR: ", tt);
                     break :nodalNFAGen undefined;
                 };
             }
