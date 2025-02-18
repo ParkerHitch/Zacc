@@ -19,7 +19,7 @@ pub fn ParsedRegex(comptime TokenKind: type) type {
         //   based on specNodalNFA.
         //   Each node contains a set of nodes in specNodalNFA.
         pub const specNodalDFA: NodalDFA = nodalDFAGen: {
-            @setEvalBranchQuota(1000000);
+            @setEvalBranchQuota(1000000000);
             const charSet = BitSet(std.math.maxInt(u8));
 
             var outDfa: NodalDFA = undefined;
@@ -117,7 +117,7 @@ pub fn ParsedRegex(comptime TokenKind: type) type {
         const NodalNFA = NodalFA(NfaNode);
         const NfaNode = AutomataNode(void, {});
         // Generates and stores NONDETERMINISTIC FA for the spec
-        const specNodalNFA: NodalNFA = nodalNFAGen: {
+        pub const specNodalNFA: NodalNFA = nodalNFAGen: {
             @setEvalBranchQuota(10000);
             const tokenTypes = std.meta.fields(TokenKind);
             var tonkenNodalNFAs: [tokenTypes.len]NodalNFA = undefined;
@@ -132,22 +132,32 @@ pub fn ParsedRegex(comptime TokenKind: type) type {
             }
 
             var mergedNFA: NodalNFA = undefined;
+            mergedNFA.acceptingNodes = &[0]usize{};
+            mergedNFA.acceptingTokens = &[0]TokenKind{};
             var mergedNodes: []const NfaNode = &[0]NfaNode{};
+
+            // We now need to clone all the nfas for each regex into this mergedNFA.
+            // We need one entry node, and then we can just add epsillon transitions into
+            //   each regex's FA
             var baseNode: NfaNode = .{
                 .id = 0,
             };
-
-            mergedNFA.acceptingNodes = &[0]usize{};
-            mergedNFA.acceptingTokens = &[0]TokenKind{};
+            // Current dest id to be cloned into
             var id = 1;
             for (tonkenNodalNFAs) |nfa| {
                 const zeroId = id;
                 baseNode.addExit(0, zeroId);
+                // For each node in the regex automata
                 for (nfa.nodes) |node| {
+                    // Clone it, offset
                     var newNode: NfaNode = .{
                         .id = node.id + zeroId,
                         .acceptsToken = node.acceptsToken,
                     };
+                    // Effectively asserting that the nodes in the regex array (nfa.nodes) are in ascending order
+                    // Each loop id gets incremented, but zeroId remains constant. Since newNode.id = zeroId + node.Id,
+                    //    this is just saying that node.Id should be incrementing alongside id
+                    // Lowkey no clue why I put this assert here but it saved my ass so thank you past me! Maybe I'm just prescient
                     std.debug.assert(newNode.id == id);
                     if (newNode.acceptsToken) |at| {
                         mergedNFA.acceptingNodes = (mergedNFA.acceptingNodes.?) ++ .{id};
@@ -238,7 +248,20 @@ pub fn ParsedRegex(comptime TokenKind: type) type {
                         previousNode.addExit(0, currentNode.id);
                         continue;
                     } else if (c == '+') {
-                        currentNode.addExit(0, previousNode.id);
+                        // Goal here is to make "(...)+" into "(...)(...)*"
+                        // Duplicate everything between previousNode and currentNode
+                        const newSection: StartAndEnd = try cloneRange(previousNode, currentNode, arr);
+                        currentID = newSection.endNode.id + 1;
+                        // Link current to start of new section
+                        currentNode.addExit(0, newSection.startNode.id);
+                        // Make new section repeatable or skippable, just like "*"
+                        // Lowkey don't remember why we need the blank node but without it it just crashes so...
+                        const newBlank = try NfaNode.addNewToArr(currentID, null, arr);
+                        currentID += 1;
+                        newSection.startNode.addExit(0, newSection.endNode.id);
+                        newSection.endNode.addExit(0, newSection.startNode.id);
+                        newSection.endNode.addExit(0, newBlank.id);
+                        currentNode = newBlank;
                         continue;
                     } else if (c == '[') {
                         const newNode = try NfaNode.addNewToArr(currentID, null, arr);
@@ -261,6 +284,25 @@ pub fn ParsedRegex(comptime TokenKind: type) type {
                 .startNode = baseNode,
                 .endNode = currentNode,
                 .charCount = i,
+            };
+        }
+
+        /// Clones all nodes with ids in the range of start's id to end's id inclusive
+        fn cloneRange(start: *NfaNode, end: *NfaNode, arr: *BoundedArr256) !StartAndEnd {
+            const idDiff = end.id + 1 - start.id;
+            for (start.id..(end.id + 1)) |toCloneId| {
+                const cloning = arr.get(toCloneId);
+                // Clone
+                const newNode = try NfaNode.addNewToArr(cloning.id + idDiff, cloning.acceptsToken, arr);
+                // Exists & queue
+                for (cloning.transitionKeys, cloning.transitionDests) |k, d| {
+                    newNode.addExit(k, d + idDiff);
+                }
+            }
+            return .{
+                .startNode = &arr.slice()[start.id + idDiff],
+                .endNode = &arr.slice()[end.id + idDiff],
+                .charCount = 0,
             };
         }
 

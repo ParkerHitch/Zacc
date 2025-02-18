@@ -328,7 +328,7 @@ fn gatherLanguageInfo(
         out.hasBlockComments = true;
     } else if (blockStart) {
         @compileError("Found BLOCK_COMMENT_START in enum, but CompilationOptions did not contain a value for blockCommentEnd");
-    } else if (userOptions.blockCommentEnd) {
+    } else if (userOptions.blockCommentEnd != null) {
         @compileError("CompilationOptions contained a value for blockCommentEnd, but BLOCK_COMMENT_START enum member not found");
     }
 

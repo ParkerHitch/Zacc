@@ -402,7 +402,7 @@ pub fn Parser(comptime Specification: type) type {
                 for (self.items) |item| {
                     // If there is a next item and that item equals our transition symbol
                     if (item.dotPos < item.prod.RHS.len and item.prod.RHS[item.dotPos].eql(transitionSymb)) {
-                        outInitial = outInitial ++ .{.{
+                        outInitial = outInitial ++ .{Item{
                             .prod = item.prod,
                             .dotPos = item.dotPos + 1,
                             .lookaheadSymbols = item.lookaheadSymbols,
